@@ -135,3 +135,29 @@ export interface UserDto {
   isActive: boolean;
   createdAt: string;
 }
+
+// ─── Input DTOs ───────────────────────────────────────────────────────────────
+export interface LoginInput {
+  email: string;
+  password: string;
+}
+
+export interface RegisterPatientInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phone: string;
+}
+
+export interface CreateStaffInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phone: string;
+  role: Role;
+  departmentId: string;
+  designation: string;
+  specialization?: string | null;
+}
