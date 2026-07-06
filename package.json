@@ -1,12 +1,17 @@
 {
-  "name": "temp_turbo",
+  "name": "medicore",
   "private": true,
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=web",
+    "dev:api": "turbo run dev --filter=api",
     "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "check-types": "turbo run check-types",
+    "db:migrate": "npm run prisma:migrate --workspace=api",
+    "db:seed": "npm run prisma:seed --workspace=api",
+    "db:studio": "npm run prisma:studio --workspace=api"
   },
   "devDependencies": {
     "prettier": "^3.7.4",
@@ -14,14 +19,9 @@
     "typescript": "5.9.2"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
-  "devEngines": {
-    "packageManager": {
-      "name": "npm",
-      "version": "10.9.2"
-    }
-  },
+  "packageManager": "npm@10.9.2",
   "workspaces": [
     "apps/*",
     "packages/*"

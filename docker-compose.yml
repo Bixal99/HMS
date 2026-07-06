@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: medicore-db
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: medicore
+      POSTGRES_PASSWORD: medicore_dev_pass
+      POSTGRES_DB: medicore_dev
+    volumes:
+      - medicore_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medicore -d medicore_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  medicore_pgdata:
