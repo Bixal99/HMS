@@ -1,24 +1,45 @@
-import { Request, Response, NextFunction } from "express";
-import prisma from "../../lib/prisma";
-import { ApiResponse } from "@shared/types";
+import type { Request, Response } from "express";
+import { getAuditHistory, listAuditLogs } from "./audit.service";
+import {
+  auditResourceParamsSchema,
+  listAuditLogsQuerySchema,
+  parseAuditRange,
+} from "./audit.validators";
 
-export class AuditController {
-  static async getLogs(req: Request, res: Response, next: NextFunction) {
-    try {
-      const logs = await prisma.auditLog.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 100, // Limit to recent 100 for dashboard
-        include: {
-          user: {
-            select: { firstName: true, lastName: true, role: true, email: true }
-          }
-        }
-      });
+export async function listAuditLogsHandler(req: Request, res: Response) {
+  const parsed = listAuditLogsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
+  }
 
-      const response: ApiResponse = { status: "success", data: logs };
-      res.status(200).json(response);
-    } catch (error) {
-      next(error);
+  try {
+    const range = parseAuditRange(parsed.data.start, parsed.data.end);
+    const result = await listAuditLogs({
+      ...parsed.data,
+      startDate: range.start,
+      endDate: range.end,
+    });
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof Error && error.message === "INVALID_RANGE") {
+      return res.status(400).json({ error: "Invalid start/end date range" });
     }
+    console.error(error);
+    return res.status(500).json({ error: "Failed to list audit logs" });
+  }
+}
+
+export async function auditHistoryHandler(req: Request, res: Response) {
+  const parsed = auditResourceParamsSchema.safeParse(req.params);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid resource", details: parsed.error.flatten() });
+  }
+
+  try {
+    const history = await getAuditHistory(parsed.data.resourceType, parsed.data.resourceId);
+    return res.json(history);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Failed to load audit history" });
   }
 }

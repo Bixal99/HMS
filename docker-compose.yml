@@ -1,21 +1,23 @@
+# Optional alternative when native PostgreSQL + pgAdmin 4 is unavailable.
+# Primary documented path remains local Postgres administered via pgAdmin 4.
+#
+# Usage: docker compose up -d
+# Then set apps/api/.env DATABASE_URL to match the credentials below.
+
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: medicore-db
+    container_name: medicore-postgres
     restart: unless-stopped
     ports:
+      # Use 5433 when a native Postgres instance already occupies 5432.
       - "5433:5432"
     environment:
-      POSTGRES_USER: medicore
-      POSTGRES_PASSWORD: medicore_dev_pass
+      POSTGRES_USER: medicore_user
+      POSTGRES_PASSWORD: medicore_dev_password
       POSTGRES_DB: medicore_dev
     volumes:
-      - medicore_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U medicore -d medicore_dev"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - medicore_pgdata_foundation:/var/lib/postgresql/data
 
 volumes:
-  medicore_pgdata:
+  medicore_pgdata_foundation:

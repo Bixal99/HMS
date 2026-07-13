@@ -1,71 +1,202 @@
-import prisma from "../../lib/prisma";
-import { AppError } from "../../middleware/errorHandler";
-import { TransactionType } from "@prisma/client";
+import { prisma } from "../../lib/prisma";
+import type { ReasonCode, TransactionType } from "../../generated/prisma/client";
 
-export class InventoryService {
-  /**
-   * Get all inventory items with low stock flags
-   */
-  static async getInventoryItems() {
-    const items = await prisma.inventoryItem.findMany({
-      orderBy: { category: "asc" }
-    });
-
-    return items.map(item => ({
-      ...item,
-      isLowStock: item.quantity <= item.reorderLevel
-    }));
+export class NegativeStockError extends Error {
+  constructor() {
+    super("Transaction would result in negative stock");
+    this.name = "NegativeStockError";
   }
+}
 
-  /**
-   * Add a new item to inventory
-   */
-  static async createInventoryItem(data: { name: string, category: string, sku: string, quantity: number, unit: string, reorderLevel: number }) {
-    return await prisma.inventoryItem.create({
-      data
-    });
-  }
+export async function listInventoryItems(opts: {
+  departmentId?: string | null;
+  all?: boolean;
+}) {
+  return prisma.inventoryItem.findMany({
+    where: opts.all ? {} : opts.departmentId ? { departmentId: opts.departmentId } : {},
+    include: {
+      department: { select: { id: true, name: true } },
+    },
+    orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
+  });
+}
 
-  /**
-   * Log an inventory transaction (IN/OUT/ADJUSTMENT)
-   */
-  static async logTransaction(itemId: string, type: TransactionType, quantity: number, performedByUserId: string, notes?: string) {
-    const item = await prisma.inventoryItem.findUnique({ where: { id: itemId } });
-    if (!item) throw new AppError("Inventory item not found", 404);
+export async function createInventoryItem(input: {
+  name: string;
+  category: string;
+  departmentId: string;
+  unit: string;
+  reorderThreshold: number;
+  currentStock?: number;
+}) {
+  // Initial stock only via create — subsequent changes must go through ledger.
+  return prisma.inventoryItem.create({
+    data: {
+      name: input.name,
+      category: input.category,
+      departmentId: input.departmentId,
+      unit: input.unit,
+      reorderThreshold: input.reorderThreshold,
+      currentStock: input.currentStock ?? 0,
+    },
+    include: { department: { select: { id: true, name: true } } },
+  });
+}
 
-    let newQuantity = item.quantity;
-    if (type === TransactionType.IN) {
-      newQuantity += quantity;
-    } else if (type === TransactionType.OUT) {
-      if (item.quantity < quantity) throw new AppError(`Insufficient stock. Only ${item.quantity} ${item.unit} available.`, 400);
-      newQuantity -= quantity;
-    } else if (type === TransactionType.ADJUSTMENT) {
-      // For adjustments, quantity could be positive or negative difference
-      newQuantity += quantity;
-      if (newQuantity < 0) newQuantity = 0;
+export async function recordTransaction(
+  itemId: string,
+  type: TransactionType,
+  quantity: number,
+  reasonCode: ReasonCode,
+  performedBy: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const item = await tx.inventoryItem.findUniqueOrThrow({ where: { id: itemId } });
+
+    let delta: number;
+    if (type === "IN") {
+      if (quantity <= 0) throw new Error("IN quantity must be positive");
+      delta = quantity;
+    } else if (type === "OUT") {
+      if (quantity <= 0) throw new Error("OUT quantity must be positive");
+      delta = -quantity;
+    } else {
+      // ADJUSTMENT: quantity is signed; ledger stores abs
+      delta = quantity;
     }
 
-    const [transaction, updatedItem] = await prisma.$transaction([
-      prisma.inventoryTransaction.create({
+    const newStock = item.currentStock + delta;
+    if (newStock < 0) throw new NegativeStockError();
+
+    await tx.inventoryTransaction.create({
+      data: {
+        itemId,
+        type,
+        quantity: Math.abs(quantity),
+        reasonCode,
+        performedBy,
+      },
+    });
+
+    return tx.inventoryItem.update({
+      where: { id: itemId },
+      data: { currentStock: newStock },
+      include: { department: { select: { id: true, name: true } } },
+    });
+  });
+}
+
+export async function reconcileStock(
+  counts: { itemId: string; countedStock: number }[],
+  performedBy: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const results = [];
+    for (const { itemId, countedStock } of counts) {
+      const item = await tx.inventoryItem.findUniqueOrThrow({ where: { id: itemId } });
+      const delta = countedStock - item.currentStock;
+      if (delta === 0) continue;
+
+      await tx.inventoryTransaction.create({
         data: {
           itemId,
-          type,
-          quantity,
-          performedBy: performedByUserId,
-          notes
-        }
-      }),
-      prisma.inventoryItem.update({
-        where: { id: itemId },
-        data: { quantity: newQuantity }
-      })
-    ]);
+          type: "ADJUSTMENT",
+          quantity: Math.abs(delta),
+          reasonCode: "MISCOUNT",
+          performedBy,
+        },
+      });
+      results.push(
+        await tx.inventoryItem.update({
+          where: { id: itemId },
+          data: { currentStock: countedStock },
+        }),
+      );
+    }
+    return results;
+  });
+}
 
-    // Simple notification integration could go here if it drops below reorder level
-    // if (updatedItem.quantity <= updatedItem.reorderLevel) {
-    //   NotificationService.notifyAdmins("Low Stock Alert", ...);
-    // }
+export async function getInventoryAlerts(opts: {
+  departmentId?: string | null;
+  all?: boolean;
+}) {
+  const deptFilter = opts.all
+    ? {}
+    : opts.departmentId
+      ? { departmentId: opts.departmentId }
+      : {};
 
-    return { transaction, updatedItem };
-  }
+  const items = await prisma.inventoryItem.findMany({
+    where: deptFilter,
+    include: { department: { select: { id: true, name: true } } },
+  });
+
+  const lowStock = items.filter((i) => i.currentStock < i.reorderThreshold);
+
+  const now = new Date();
+  const equipmentDue = await prisma.equipment.findMany({
+    where: {
+      ...deptFilter,
+      OR: [
+        { nextServiceDueAt: { lte: now } },
+        { status: "MAINTENANCE" },
+      ],
+    },
+    include: { department: { select: { id: true, name: true } } },
+    orderBy: { nextServiceDueAt: "asc" },
+  });
+
+  return {
+    lowStock,
+    equipmentDue,
+    count: lowStock.length + equipmentDue.length,
+  };
+}
+
+export async function listEquipment(opts: {
+  departmentId?: string | null;
+  all?: boolean;
+}) {
+  return prisma.equipment.findMany({
+    where: opts.all ? {} : opts.departmentId ? { departmentId: opts.departmentId } : {},
+    include: { department: { select: { id: true, name: true } } },
+    orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
+  });
+}
+
+export async function serviceEquipment(
+  id: string,
+  input: {
+    status?: "OPERATIONAL" | "MAINTENANCE" | "RETIRED";
+    lastServicedAt?: Date | null;
+    nextServiceDueAt?: Date | null;
+  },
+) {
+  return prisma.equipment.update({
+    where: { id },
+    data: {
+      ...(input.status ? { status: input.status } : {}),
+      lastServicedAt:
+        input.lastServicedAt !== undefined ? input.lastServicedAt : new Date(),
+      ...(input.nextServiceDueAt !== undefined
+        ? { nextServiceDueAt: input.nextServiceDueAt }
+        : {}),
+    },
+    include: { department: { select: { id: true, name: true } } },
+  });
+}
+
+export async function getEquipmentById(id: string) {
+  return prisma.equipment.findUnique({
+    where: { id },
+    include: { department: { select: { id: true, name: true } } },
+  });
+}
+
+export async function getInventoryItemById(id: string) {
+  return prisma.inventoryItem.findUnique({
+    where: { id },
+    include: { department: { select: { id: true, name: true } } },
+  });
 }

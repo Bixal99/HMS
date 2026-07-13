@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  reactStrictMode: true,
-  transpilePackages: ["@shared/types", "@shared/validators"],
+  /* config options here */
 };
 
 export default nextConfig;

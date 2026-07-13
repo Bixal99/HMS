@@ -1,14 +1,22 @@
-export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-50">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-primary-600">
-          🏥 MediCore
-        </h1>
-        <p className="mt-2 text-neutral-500">
-          Hospital Management System — Phase 0 Foundation
-        </p>
-      </div>
-    </main>
-  );
+import { LandingPage } from "@/components/landing/LandingPage";
+
+async function registrationEnabled() {
+  try {
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/settings/public`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return true;
+    const body = (await res.json()) as {
+      data?: { "features.patientSelfRegistration"?: boolean };
+    };
+    return body.data?.["features.patientSelfRegistration"] !== false;
+  } catch {
+    return true;
+  }
+}
+
+export default async function HomePage() {
+  const allowRegistration = await registrationEnabled();
+  return <LandingPage allowRegistration={allowRegistration} />;
 }

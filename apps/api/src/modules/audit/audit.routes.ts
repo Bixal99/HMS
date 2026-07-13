@@ -1,12 +1,14 @@
 import { Router } from "express";
-import { AuditController } from "./audit.controller";
-import { requireAuth, requireRole } from "../../middleware/auth.middleware";
-import { Role } from "@shared/types";
+import { authenticate } from "../../middleware/authenticate";
+import { authorize } from "../../middleware/authorize";
+import { auditHistoryHandler, listAuditLogsHandler } from "./audit.controller";
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(authenticate);
+router.use(authorize("ADMIN"));
 
-router.get("/", requireRole([Role.ADMIN]), AuditController.getLogs);
+router.get("/", listAuditLogsHandler);
+router.get("/:resourceType/:resourceId", auditHistoryHandler);
 
 export default router;

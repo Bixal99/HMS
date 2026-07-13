@@ -1,107 +1,226 @@
-import { Request, Response, NextFunction } from "express";
-import { BillingService } from "./billing.service";
-import { InvoiceStatus, PaymentMethod } from "@prisma/client";
-import { z } from "zod";
-import { AppError } from "../../middleware/errorHandler";
-import { ApiResponse } from "@shared/types";
+import type { Request, Response } from "express";
+import { generateInvoiceForPatient, NoBillableItemsError } from "./generateInvoice.service";
+import {
+  addManualInvoiceItem,
+  createInsuranceClaim,
+  getInvoiceById,
+  listInvoices,
+  listInvoiceSummariesForPatient,
+  recordPayment,
+  updateInsuranceClaim,
+  voidInvoice,
+} from "./billing.service";
+import {
+  addInvoiceItemSchema,
+  createClaimSchema,
+  listInvoicesQuerySchema,
+  recordPaymentSchema,
+  updateClaimSchema,
+  voidInvoiceSchema,
+} from "./billing.validators";
+import { renderInvoicePdf } from "./invoicePdf";
+import { getSetting } from "../settings/settings.service";
 
-// Validation schemas
-const createInvoiceSchema = z.object({
-  patientId: z.string().uuid(),
-  encounterId: z.string().uuid().optional(),
-  items: z.array(z.object({
-    description: z.string().min(1),
-    quantity: z.number().int().min(1),
-    unitPrice: z.number().int().min(0), // cents
-    sourceType: z.string(),
-    sourceId: z.string().optional()
-  }))
-});
+function patientMayAccess(req: Request, patientId: string) {
+  if (req.user?.role !== "PATIENT") return true;
+  return req.user.patientId === patientId;
+}
 
-const processPaymentSchema = z.object({
-  amountCents: z.number().int().min(1),
-  method: z.nativeEnum(PaymentMethod),
-  transactionRef: z.string().optional(),
-});
-
-export class BillingController {
-  static async createInvoice(req: Request, res: Response, next: NextFunction) {
-    try {
-      const data = createInvoiceSchema.parse(req.body);
-      const invoice = await BillingService.generateInvoice(data.patientId, data.encounterId, data.items);
-      
-      const response: ApiResponse = {
-        status: "success",
-        data: invoice,
-        message: "Invoice generated successfully",
-      };
-      res.status(201).json(response);
-    } catch (error: any) {
-      if (error.name === "ZodError") next(new AppError(error.errors[0].message, 400));
-      else next(error);
+export async function generateHandler(req: Request, res: Response) {
+  try {
+    const patientId = String(req.params.patientId);
+    const invoice = await generateInvoiceForPatient(patientId);
+    return res.status(201).json({ data: invoice });
+  } catch (err) {
+    if (err instanceof NoBillableItemsError) {
+      return res.status(422).json({ error: "No billable items" });
     }
+    console.error(err);
+    return res.status(500).json({ error: "Failed to generate invoice" });
+  }
+}
+
+export async function listHandler(req: Request, res: Response) {
+  const parsed = listInvoicesQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid query" });
   }
 
-  static async getInvoices(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { status, patientId } = req.query;
-      const invoices = await BillingService.getInvoices(
-        status as InvoiceStatus | undefined,
-        patientId as string | undefined
-      );
-
-      const response: ApiResponse = { status: "success", data: invoices };
-      res.status(200).json(response);
-    } catch (error) {
-      next(error);
+  if (req.user?.role === "PATIENT") {
+    if (!req.user.patientId) {
+      return res.status(403).json({ error: "Forbidden" });
     }
+    const data = await listInvoices(parsed.data, {
+      patientIdOnly: req.user.patientId,
+      excludeDraftVoid: true,
+    });
+    return res.json({ data });
   }
 
-  static async getInvoiceById(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { id } = req.params;
-      const invoice = await BillingService.getInvoiceById(id);
+  const data = await listInvoices(parsed.data);
+  return res.json({ data });
+}
 
-      const response: ApiResponse = { status: "success", data: invoice };
-      res.status(200).json(response);
-    } catch (error) {
-      next(error);
-    }
+export async function listMineHandler(req: Request, res: Response) {
+  if (!req.user?.patientId) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const data = await listInvoices(
+    {},
+    { patientIdOnly: req.user.patientId, excludeDraftVoid: true },
+  );
+  return res.json({ data });
+}
+
+export async function getHandler(req: Request, res: Response) {
+  const invoice = await getInvoiceById(String(req.params.id));
+  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+  if (!patientMayAccess(req, invoice.patientId)) {
+    return res.status(403).json({ error: "Forbidden" });
   }
 
-  static async processPayment(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { id } = req.params;
-      const data = processPaymentSchema.parse(req.body);
-      const user = (req as any).user;
-
-      const result = await BillingService.processPayment(id, data.amountCents, data.method, user.id, data.transactionRef);
-
-      const response: ApiResponse = {
-        status: "success",
-        data: result,
-        message: "Payment processed successfully",
-      };
-      res.status(200).json(response);
-    } catch (error: any) {
-      if (error.name === "ZodError") next(new AppError(error.errors[0].message, 400));
-      else next(error);
-    }
+  if (
+    req.user?.role === "PATIENT" &&
+    (invoice.status === "DRAFT" || invoice.status === "VOID")
+  ) {
+    return res.status(404).json({ error: "Invoice not found" });
   }
 
-  static async issueInvoice(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { id } = req.params;
-      const invoice = await BillingService.issueInvoice(id);
+  return res.json({ data: invoice });
+}
 
-      const response: ApiResponse = {
-        status: "success",
-        data: invoice,
-        message: "Invoice issued successfully",
-      };
-      res.status(200).json(response);
-    } catch (error) {
-      next(error);
-    }
+export async function addItemHandler(req: Request, res: Response) {
+  const parsed = addInvoiceItemSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid item payload" });
   }
+
+  try {
+    const invoice = await addManualInvoiceItem(String(req.params.id), parsed.data);
+    return res.json({ data: invoice });
+  } catch (err) {
+    if (err instanceof Error && err.message === "INVOICE_LOCKED") {
+      return res.status(400).json({ error: "Cannot add items to a void or paid invoice" });
+    }
+    console.error(err);
+    return res.status(500).json({ error: "Failed to add item" });
+  }
+}
+
+export async function paymentHandler(req: Request, res: Response) {
+  const parsed = recordPaymentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payment payload" });
+  }
+
+  try {
+    const payment = await recordPayment(
+      String(req.params.id),
+      parsed.data,
+      req.user!.id,
+    );
+    return res.status(201).json({ data: payment });
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === "INVOICE_VOID") {
+        return res.status(400).json({ error: "Cannot pay a void invoice" });
+      }
+      if (err.message === "INVOICE_PAID") {
+        return res.status(400).json({ error: "Invoice is already paid" });
+      }
+    }
+    console.error(err);
+    return res.status(500).json({ error: "Failed to record payment" });
+  }
+}
+
+export async function voidHandler(req: Request, res: Response) {
+  const parsed = voidInvoiceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "A reason is required to void an invoice" });
+  }
+
+  try {
+    const invoice = await voidInvoice(String(req.params.id), parsed.data);
+    return res.json({ data: invoice });
+  } catch (err) {
+    if (err instanceof Error && err.message === "ALREADY_VOID") {
+      return res.status(400).json({ error: "Invoice is already void" });
+    }
+    console.error(err);
+    return res.status(500).json({ error: "Failed to void invoice" });
+  }
+}
+
+export async function createClaimHandler(req: Request, res: Response) {
+  const parsed = createClaimSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid claim payload" });
+  }
+
+  try {
+    const claim = await createInsuranceClaim(String(req.params.id), parsed.data);
+    return res.status(201).json({ data: claim });
+  } catch (err) {
+    if (err instanceof Error && err.message === "INVOICE_VOID") {
+      return res.status(400).json({ error: "Cannot claim against a void invoice" });
+    }
+    console.error(err);
+    return res.status(500).json({ error: "Failed to create claim" });
+  }
+}
+
+export async function updateClaimHandler(req: Request, res: Response) {
+  const parsed = updateClaimSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid claim status" });
+  }
+
+  try {
+    const claim = await updateInsuranceClaim(String(req.params.id), parsed.data);
+    return res.json({ data: claim });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to update claim" });
+  }
+}
+
+export async function pdfHandler(req: Request, res: Response) {
+  const invoice = await getInvoiceById(String(req.params.id));
+  if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+  if (!patientMayAccess(req, invoice.patientId)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  if (
+    req.user?.role === "PATIENT" &&
+    (invoice.status === "DRAFT" || invoice.status === "VOID")
+  ) {
+    return res.status(404).json({ error: "Invoice not found" });
+  }
+
+  try {
+    const branding = {
+      hospitalName: await getSetting<string>("hospital.name"),
+      brandColorHex: await getSetting<string>("hospital.brandColorHex"),
+      logoUrl: await getSetting<string | null>("hospital.logoUrl"),
+    };
+    const buffer = await renderInvoicePdf(invoice, branding);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="invoice-${invoice.id.slice(0, 8)}.pdf"`,
+    );
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to generate PDF" });
+  }
+}
+
+/** Used by patient timeline helper — keep export for service wiring. */
+export async function timelineInvoices(patientId: string) {
+  return listInvoiceSummariesForPatient(patientId);
 }

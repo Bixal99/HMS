@@ -1,16 +1,70 @@
 import { Router } from "express";
-import { PharmacyController } from "./pharmacy.controller";
-import { requireAuth, requireRole } from "../../middleware/auth.middleware";
-import { Role } from "@shared/types";
+import { authenticate } from "../../middleware/authenticate";
+import { authorize } from "../../middleware/authorize";
+import {
+  alertsCountHandler,
+  alertsHandler,
+  createPoHandler,
+  dispenseHandler,
+  listMedicinesHandler,
+  listPoHandler,
+  prescriptionDetailHandler,
+  queueHandler,
+  receivePoHandler,
+  stageHandler,
+  suppliersHandler,
+} from "./pharmacy.controller";
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(authenticate);
 
-router.get("/medicines", PharmacyController.getMedicines);
-router.post("/medicines", requireRole([Role.ADMIN, Role.PHARMACIST]), PharmacyController.createMedicine);
-router.post("/batches", requireRole([Role.ADMIN, Role.PHARMACIST]), PharmacyController.addBatch);
-router.post("/dispense", requireRole([Role.PHARMACIST, Role.ADMIN]), PharmacyController.dispense);
-router.get("/low-stock", requireRole([Role.ADMIN, Role.PHARMACIST]), PharmacyController.getLowStock);
+router.get(
+  "/medicines",
+  authorize("PHARMACIST", "DOCTOR", "ADMIN"),
+  listMedicinesHandler,
+);
+
+router.get("/queue", authorize("PHARMACIST", "ADMIN"), queueHandler);
+router.get(
+  "/queue/:prescriptionId",
+  authorize("PHARMACIST", "ADMIN"),
+  prescriptionDetailHandler,
+);
+router.patch(
+  "/queue/:prescriptionId/stage",
+  authorize("PHARMACIST", "ADMIN"),
+  stageHandler,
+);
+
+router.post(
+  "/dispense/:prescriptionItemId",
+  authorize("PHARMACIST", "ADMIN"),
+  dispenseHandler,
+);
+
+router.get("/suppliers", authorize("PHARMACIST", "ADMIN"), suppliersHandler);
+router.get(
+  "/purchase-orders",
+  authorize("PHARMACIST", "ADMIN"),
+  listPoHandler,
+);
+router.post(
+  "/purchase-orders",
+  authorize("PHARMACIST", "ADMIN"),
+  createPoHandler,
+);
+router.patch(
+  "/purchase-orders/:id/receive",
+  authorize("PHARMACIST", "ADMIN"),
+  receivePoHandler,
+);
+
+router.get("/alerts", authorize("PHARMACIST", "ADMIN"), alertsHandler);
+router.get(
+  "/alerts/count",
+  authorize("PHARMACIST", "ADMIN"),
+  alertsCountHandler,
+);
 
 export default router;

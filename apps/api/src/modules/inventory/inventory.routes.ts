@@ -1,14 +1,59 @@
 import { Router } from "express";
-import { InventoryController } from "./inventory.controller";
-import { requireAuth, requireRole } from "../../middleware/auth.middleware";
-import { Role } from "@shared/types";
+import { authenticate } from "../../middleware/authenticate";
+import { authorize } from "../../middleware/authorize";
+import {
+  alertsCountHandler,
+  alertsHandler,
+  createItemHandler,
+  listEquipmentHandler,
+  listInventoryHandler,
+  reconcileHandler,
+  serviceEquipmentHandler,
+  transactionHandler,
+} from "./inventory.controller";
 
-const router = Router();
+export const inventoryRoutes = Router();
+inventoryRoutes.use(authenticate);
 
-router.use(requireAuth);
+inventoryRoutes.get(
+  "/",
+  authorize("ADMIN", "NURSE", "LAB_TECHNICIAN"),
+  listInventoryHandler,
+);
 
-router.get("/", requireRole([Role.ADMIN, Role.NURSE, Role.DOCTOR]), InventoryController.getItems);
-router.post("/", requireRole([Role.ADMIN]), InventoryController.createItem);
-router.post("/:id/transactions", requireRole([Role.ADMIN, Role.NURSE]), InventoryController.logTransaction);
+inventoryRoutes.post("/items", authorize("ADMIN"), createItemHandler);
 
-export default router;
+inventoryRoutes.post(
+  "/transactions",
+  authorize("ADMIN", "NURSE"),
+  transactionHandler,
+);
+
+inventoryRoutes.post("/reconcile", authorize("ADMIN"), reconcileHandler);
+
+inventoryRoutes.get(
+  "/alerts",
+  authorize("ADMIN", "NURSE", "LAB_TECHNICIAN"),
+  alertsHandler,
+);
+
+inventoryRoutes.get(
+  "/alerts/count",
+  authorize("ADMIN", "NURSE", "LAB_TECHNICIAN"),
+  alertsCountHandler,
+);
+
+export const equipmentRoutes = Router();
+equipmentRoutes.use(authenticate);
+
+equipmentRoutes.get(
+  "/",
+  authorize("ADMIN", "NURSE", "LAB_TECHNICIAN"),
+  listEquipmentHandler,
+);
+
+equipmentRoutes.patch(
+  "/:id/service",
+  authorize("ADMIN", "LAB_TECHNICIAN"),
+  serviceEquipmentHandler,
+);

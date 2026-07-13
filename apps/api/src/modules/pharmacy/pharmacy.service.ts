@@ -1,141 +1,334 @@
-import prisma from "../../lib/prisma";
-import { AppError } from "../../middleware/errorHandler";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "../../generated/prisma/client";
+import { prisma } from "../../lib/prisma";
+import { addDays, startOfDay } from "date-fns";
 
-export class PharmacyService {
-  // ─── Medicine Catalog ───────────────────────────────────────────────
-  static async getMedicines(query: { page: number; limit: number; search?: string }) {
-    const { page, limit, search } = query;
-    const skip = (page - 1) * limit;
+type Tx = Prisma.TransactionClient;
 
-    const where: Prisma.MedicineWhereInput = search
-      ? {
-          OR: [
-            { name: { contains: search, mode: "insensitive" } },
-            { genericName: { contains: search, mode: "insensitive" } },
-          ],
-        }
-      : {};
+export async function listMedicinesWithStock() {
+  const medicines = await prisma.medicine.findMany({
+    include: {
+      batches: {
+        where: { quantityInStock: { gt: 0 } },
+        orderBy: { expiryDate: "asc" },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
 
-    const [total, medicines] = await Promise.all([
-      prisma.medicine.count({ where }),
-      prisma.medicine.findMany({
-        where,
-        skip,
-        take: limit,
+  return medicines.map((m) => {
+    const totalStock = m.batches.reduce((s, b) => s + b.quantityInStock, 0);
+    return {
+      ...m,
+      totalStock,
+      lowStock: totalStock < m.reorderThreshold,
+    };
+  });
+}
+
+export async function getPharmacyQueue() {
+  const prescriptions = await prisma.prescription.findMany({
+    where: { status: { not: "CANCELLED" } },
+    orderBy: { createdAt: "asc" },
+    include: {
+      patient: {
+        select: { id: true, firstName: true, lastName: true, mrn: true },
+      },
+      doctor: {
+        select: { user: { select: { name: true } }, designation: true },
+      },
+      items: {
         include: {
-          batches: {
-            where: { quantityInStock: { gt: 0 } },
-            orderBy: { expiryDate: "asc" },
+          medicine: true,
+          dispenses: {
+            include: {
+              batch: { select: { id: true, batchNo: true, expiryDate: true } },
+            },
           },
         },
-        orderBy: { name: "asc" },
-      }),
-    ]);
-
-    // Compute aggregate stock per medicine
-    const data = medicines.map((m) => {
-      const totalStock = m.batches.reduce((sum, b) => sum + b.quantityInStock, 0);
-      const nearestExpiry = m.batches[0]?.expiryDate || null;
-      return { ...m, totalStock, nearestExpiry };
-    });
-
-    return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
-  }
-
-  static async createMedicine(data: { name: string; genericName: string; form: string; strength: string; manufacturer?: string; reorderThreshold?: number }) {
-    return prisma.medicine.create({ data });
-  }
-
-  // ─── Batch Management ──────────────────────────────────────────────
-  static async addBatch(data: { medicineId: string; batchNo: string; quantityInStock: number; unitCost: number; expiryDate: string }) {
-    const medicine = await prisma.medicine.findUnique({ where: { id: data.medicineId } });
-    if (!medicine) throw new AppError("Medicine not found", 404);
-
-    return prisma.medicineBatch.create({
-      data: {
-        medicineId: data.medicineId,
-        batchNo: data.batchNo,
-        quantityInStock: data.quantityInStock,
-        unitCost: data.unitCost,
-        expiryDate: new Date(data.expiryDate),
       },
+    },
+  });
+
+  const stages = [
+    "PENDING_REVIEW",
+    "PREPARING",
+    "READY_FOR_PICKUP",
+    "COMPLETED",
+  ] as const;
+
+  const grouped: Record<string, typeof prescriptions> = {};
+  for (const stage of stages) grouped[stage] = [];
+  for (const rx of prescriptions) {
+    grouped[rx.pharmacyStage]?.push(rx);
+  }
+  return grouped;
+}
+
+export async function updatePharmacyStage(
+  prescriptionId: string,
+  pharmacyStage:
+    | "PENDING_REVIEW"
+    | "PREPARING"
+    | "READY_FOR_PICKUP"
+    | "COMPLETED",
+) {
+  return prisma.prescription.update({
+    where: { id: prescriptionId },
+    data: { pharmacyStage },
+  });
+}
+
+async function maybeMarkPrescriptionFulfilled(tx: Tx, prescriptionId: string) {
+  const items = await tx.prescriptionItem.findMany({
+    where: { prescriptionId },
+    include: { dispenses: true },
+  });
+  const allFulfilled = items.every(
+    (i) =>
+      i.dispenses.reduce((s, d) => s + d.quantityDispensed, 0) >=
+      i.quantityPrescribed,
+  );
+  if (allFulfilled) {
+    await tx.prescription.update({
+      where: { id: prescriptionId },
+      data: { status: "FULFILLED", pharmacyStage: "COMPLETED" },
     });
   }
+}
 
-  // ─── Dispensing (FEFO - First Expiry First Out) ────────────────────
-  static async dispenseMedicine(prescriptionItemId: string, dispensedByUserId: string) {
-    const prescriptionItem = await prisma.prescriptionItem.findUnique({
+export async function dispensePrescriptionItem(
+  prescriptionItemId: string,
+  dispensedBy: string,
+  overrideBatchId?: string,
+  quantity?: number,
+) {
+  return prisma.$transaction(async (tx) => {
+    const item = await tx.prescriptionItem.findUniqueOrThrow({
       where: { id: prescriptionItemId },
-      include: { medicine: true, prescription: true },
+      include: { dispenses: true },
     });
 
-    if (!prescriptionItem) throw new AppError("Prescription item not found", 404);
+    const alreadyDispensed = item.dispenses.reduce(
+      (sum, d) => sum + d.quantityDispensed,
+      0,
+    );
+    const remaining = item.quantityPrescribed - alreadyDispensed;
+    if (remaining <= 0) throw new Error("ALREADY_DISPENSED");
 
-    const staffDispenser = await prisma.staff.findUnique({ where: { userId: dispensedByUserId } });
-    if (!staffDispenser) throw new AppError("Only pharmacy staff can dispense", 403);
+    const requested = quantity ?? remaining;
+    if (requested > remaining) throw new Error("QUANTITY_EXCEEDS_REMAINING");
 
-    // Get batches FEFO (earliest expiry first)
-    const batches = await prisma.medicineBatch.findMany({
+    const batches = await tx.medicineBatch.findMany({
       where: {
-        medicineId: prescriptionItem.medicineId,
+        medicineId: item.medicineId,
         quantityInStock: { gt: 0 },
-        expiryDate: { gt: new Date() }, // Not expired
+        ...(overrideBatchId ? { id: overrideBatchId } : {}),
       },
       orderBy: { expiryDate: "asc" },
     });
 
-    let remaining = prescriptionItem.durationDays; // simplified: 1 unit per day
-    const dispenses = [];
+    if (overrideBatchId && batches.length === 0) {
+      throw new Error("BATCH_NOT_FOUND");
+    }
 
+    let toDispense = requested;
     for (const batch of batches) {
-      if (remaining <= 0) break;
-      const qty = Math.min(remaining, batch.quantityInStock);
+      if (toDispense <= 0) break;
+      const fromThisBatch = Math.min(batch.quantityInStock, toDispense);
 
-      const dispense = await prisma.dispense.create({
+      await tx.dispense.create({
         data: {
           prescriptionItemId,
           batchId: batch.id,
-          quantityDispensed: qty,
-          dispensedBy: staffDispenser.id,
+          quantityDispensed: fromThisBatch,
+          dispensedBy,
         },
       });
-
-      await prisma.medicineBatch.update({
+      await tx.medicineBatch.update({
         where: { id: batch.id },
-        data: { quantityInStock: { decrement: qty } },
+        data: { quantityInStock: { decrement: fromThisBatch } },
       });
-
-      dispenses.push(dispense);
-      remaining -= qty;
+      toDispense -= fromThisBatch;
     }
 
-    if (remaining > 0) {
-      throw new AppError(`Insufficient stock. Short by ${remaining} units.`, 400);
+    if (toDispense > 0) {
+      throw new Error(`INSUFFICIENT_STOCK:${toDispense}`);
     }
 
-    // Mark prescription as dispensed
-    await prisma.prescription.update({
-      where: { id: prescriptionItem.prescriptionId },
-      data: { status: "DISPENSED" },
+    await maybeMarkPrescriptionFulfilled(tx, item.prescriptionId);
+    return { dispensedQuantity: requested };
+  });
+}
+
+export async function listSuppliers() {
+  return prisma.supplier.findMany({ orderBy: { name: "asc" } });
+}
+
+export async function createPurchaseOrder(input: {
+  supplierId: string;
+  status: "DRAFT" | "ORDERED";
+  items: Array<{ medicineId: string; quantity: number; unitCostCents: number }>;
+}) {
+  return prisma.purchaseOrder.create({
+    data: {
+      supplierId: input.supplierId,
+      status: input.status,
+      orderedAt: input.status === "ORDERED" ? new Date() : null,
+      items: {
+        create: input.items.map((i) => ({
+          medicineId: i.medicineId,
+          quantity: i.quantity,
+          unitCostCents: i.unitCostCents,
+        })),
+      },
+    },
+    include: {
+      supplier: true,
+      items: { include: { medicine: true } },
+    },
+  });
+}
+
+export async function receivePurchaseOrder(
+  purchaseOrderId: string,
+  lines: Array<{
+    purchaseOrderItemId: string;
+    batchNo: string;
+    expiryDate: Date;
+  }>,
+) {
+  return prisma.$transaction(async (tx) => {
+    const po = await tx.purchaseOrder.findUniqueOrThrow({
+      where: { id: purchaseOrderId },
+      include: { items: true },
     });
+    if (po.status === "RECEIVED") throw new Error("ALREADY_RECEIVED");
 
-    return dispenses;
-  }
+    for (const line of lines) {
+      const poItem = po.items.find((i) => i.id === line.purchaseOrderItemId);
+      if (!poItem) throw new Error("INVALID_PO_ITEM");
 
-  // ─── Low Stock Alerts ──────────────────────────────────────────────
-  static async getLowStockAlerts() {
-    const medicines = await prisma.medicine.findMany({
+      await tx.medicineBatch.create({
+        data: {
+          medicineId: poItem.medicineId,
+          batchNo: line.batchNo,
+          quantityInStock: poItem.quantity,
+          unitCostCents: poItem.unitCostCents,
+          expiryDate: line.expiryDate,
+        },
+      });
+    }
+
+    return tx.purchaseOrder.update({
+      where: { id: purchaseOrderId },
+      data: { status: "RECEIVED", receivedAt: new Date() },
       include: {
-        batches: { where: { quantityInStock: { gt: 0 } } },
+        supplier: true,
+        items: { include: { medicine: true } },
       },
     });
+  });
+}
 
-    return medicines
-      .map((m) => {
-        const totalStock = m.batches.reduce((sum, b) => sum + b.quantityInStock, 0);
-        return { ...m, totalStock };
-      })
-      .filter((m) => m.totalStock < m.reorderThreshold);
-  }
+export async function listPurchaseOrders() {
+  return prisma.purchaseOrder.findMany({
+    orderBy: { createdAt: "desc" },
+    include: {
+      supplier: true,
+      items: { include: { medicine: true } },
+    },
+  });
+}
+
+export async function getPharmacyAlerts() {
+  const horizon = addDays(startOfDay(new Date()), 30);
+
+  const medicines = await prisma.medicine.findMany({
+    include: { batches: true },
+  });
+
+  const lowStock = medicines
+    .map((m) => {
+      const totalStock = m.batches.reduce((s, b) => s + b.quantityInStock, 0);
+      return { medicine: m, totalStock };
+    })
+    .filter((row) => row.totalStock < row.medicine.reorderThreshold)
+    .map((row) => ({
+      type: "LOW_STOCK" as const,
+      medicineId: row.medicine.id,
+      medicineName: `${row.medicine.name} ${row.medicine.strength}`,
+      totalStock: row.totalStock,
+      reorderThreshold: row.medicine.reorderThreshold,
+      message: `Low stock: ${row.totalStock} on hand (threshold ${row.medicine.reorderThreshold})`,
+    }));
+
+  const nearExpiryBatches = await prisma.medicineBatch.findMany({
+    where: {
+      quantityInStock: { gt: 0 },
+      expiryDate: { lte: horizon },
+    },
+    include: { medicine: true },
+    orderBy: { expiryDate: "asc" },
+  });
+
+  const nearExpiry = nearExpiryBatches.map((b) => {
+    const days = Math.ceil(
+      (b.expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+    );
+    return {
+      type: "NEAR_EXPIRY" as const,
+      batchId: b.id,
+      batchNo: b.batchNo,
+      medicineId: b.medicineId,
+      medicineName: `${b.medicine.name} ${b.medicine.strength}`,
+      expiryDate: b.expiryDate,
+      quantityInStock: b.quantityInStock,
+      daysUntilExpiry: days,
+      message:
+        days < 0
+          ? `Expired ${Math.abs(days)} day(s) ago (batch ${b.batchNo})`
+          : `Expires in ${days} day(s) (batch ${b.batchNo})`,
+    };
+  });
+
+  return {
+    lowStock,
+    nearExpiry,
+    count: lowStock.length + nearExpiry.length,
+  };
+}
+
+export async function getFefoSuggestion(medicineId: string) {
+  return prisma.medicineBatch.findFirst({
+    where: { medicineId, quantityInStock: { gt: 0 } },
+    orderBy: { expiryDate: "asc" },
+  });
+}
+
+export async function getPrescriptionDetail(prescriptionId: string) {
+  return prisma.prescription.findUnique({
+    where: { id: prescriptionId },
+    include: {
+      patient: {
+        select: { id: true, firstName: true, lastName: true, mrn: true },
+      },
+      items: {
+        include: {
+          medicine: true,
+          dispenses: {
+            include: {
+              batch: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+export async function listBatchesForMedicine(medicineId: string) {
+  return prisma.medicineBatch.findMany({
+    where: { medicineId, quantityInStock: { gt: 0 } },
+    orderBy: { expiryDate: "asc" },
+  });
 }

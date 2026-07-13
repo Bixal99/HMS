@@ -1,139 +1,226 @@
-import prisma from "../../lib/prisma";
-import { AppError } from "../../middleware/errorHandler";
-import { InvoiceStatus, PaymentMethod } from "@prisma/client";
+import { prisma } from "../../lib/prisma";
+import type {
+  addInvoiceItemSchema,
+  createClaimSchema,
+  listInvoicesQuerySchema,
+  recordPaymentSchema,
+  updateClaimSchema,
+  voidInvoiceSchema,
+} from "./billing.validators";
+import type { z } from "zod";
 
-export class BillingService {
-  /**
-   * Generates a draft invoice for an encounter/appointment.
-   */
-  static async generateInvoice(patientId: string, encounterId?: string, items: { description: string, quantity: number, unitPrice: number, sourceType: string, sourceId?: string }[] = []) {
-    
-    let subtotal = 0;
-    const formattedItems = items.map(item => {
-      const lineTotal = item.quantity * item.unitPrice;
-      subtotal += lineTotal;
-      return {
-        ...item,
-        lineTotal
-      };
-    });
+const invoiceInclude = {
+  items: { orderBy: { description: "asc" as const } },
+  payments: { orderBy: { paidAt: "desc" as const } },
+  claims: { orderBy: { submittedAt: "desc" as const } },
+  patient: {
+    select: {
+      id: true,
+      mrn: true,
+      firstName: true,
+      lastName: true,
+      phone: true,
+      email: true,
+      insuranceProvider: true,
+      insurancePolicyNo: true,
+    },
+  },
+} as const;
 
-    // Assume 0% tax for now, can be configured later
-    const tax = 0;
-    const discount = 0;
-    const total = subtotal + tax - discount;
-
-    const invoice = await prisma.invoice.create({
-      data: {
-        patientId,
-        encounterId,
-        status: InvoiceStatus.DRAFT,
-        subtotal,
-        tax,
-        discount,
-        total,
-        items: {
-          create: formattedItems
-        }
+export async function listInvoices(
+  query: z.infer<typeof listInvoicesQuerySchema>,
+  opts?: { patientIdOnly?: string; excludeDraftVoid?: boolean },
+) {
+  return prisma.invoice.findMany({
+    where: {
+      ...(opts?.patientIdOnly
+        ? { patientId: opts.patientIdOnly }
+        : query.patientId
+          ? { patientId: query.patientId }
+          : {}),
+      ...(opts?.excludeDraftVoid
+        ? { status: { notIn: ["DRAFT", "VOID"] } }
+        : query.status
+          ? { status: query.status }
+          : {}),
+    },
+    include: {
+      patient: {
+        select: { id: true, mrn: true, firstName: true, lastName: true },
       },
-      include: {
-        patient: { select: { firstName: true, lastName: true, mrn: true } },
-        items: true
-      }
-    });
+      _count: { select: { items: true, payments: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
 
-    return invoice;
-  }
+export async function getInvoiceById(id: string) {
+  return prisma.invoice.findUnique({
+    where: { id },
+    include: invoiceInclude,
+  });
+}
 
-  /**
-   * Fetches all invoices with basic filtering.
-   */
-  static async getInvoices(status?: InvoiceStatus, patientId?: string) {
-    const where: any = { deletedAt: null };
-    if (status) where.status = status;
-    if (patientId) where.patientId = patientId;
-
-    const invoices = await prisma.invoice.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: {
-        patient: { select: { firstName: true, lastName: true, mrn: true, phone: true } }
-      }
-    });
-
-    return invoices;
-  }
-
-  /**
-   * Get a specific invoice by ID
-   */
-  static async getInvoiceById(id: string) {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id },
-      include: {
-        patient: { select: { firstName: true, lastName: true, mrn: true, phone: true, email: true, address: true } },
-        items: true,
-        payments: { orderBy: { paidAt: "desc" } }
-      }
-    });
-
-    if (!invoice) throw new AppError("Invoice not found", 404);
-    return invoice;
-  }
-
-  /**
-   * Process a payment against an invoice
-   */
-  static async processPayment(invoiceId: string, amountCents: number, method: PaymentMethod, recordedByUserId: string, transactionRef?: string) {
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
-      include: { payments: true }
-    });
-
-    if (!invoice) throw new AppError("Invoice not found", 404);
-    if (invoice.status === InvoiceStatus.PAID) throw new AppError("Invoice is already fully paid", 400);
-
-    const amountPaidSoFar = invoice.payments.reduce((acc, p) => acc + p.amount, 0);
-    const newAmountPaid = amountPaidSoFar + amountCents;
-
-    let newStatus = invoice.status;
-    if (newAmountPaid >= invoice.total) {
-      newStatus = InvoiceStatus.PAID;
-    } else {
-      newStatus = InvoiceStatus.PARTIALLY_PAID;
+export async function addManualInvoiceItem(
+  invoiceId: string,
+  input: z.infer<typeof addInvoiceItemSchema>,
+) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    if (invoice.status === "VOID" || invoice.status === "PAID") {
+      throw new Error("INVOICE_LOCKED");
     }
 
-    // Create payment and update invoice status in a transaction
-    const [payment, updatedInvoice] = await prisma.$transaction([
-      prisma.payment.create({
-        data: {
-          invoiceId,
-          amount: amountCents,
-          method,
-          transactionRef,
-          recordedBy: recordedByUserId,
-        }
-      }),
-      prisma.invoice.update({
-        where: { id: invoiceId },
-        data: { status: newStatus }
-      })
-    ]);
+    const quantity = input.quantity ?? 1;
+    const lineTotalCents = quantity * input.unitPriceCents;
 
-    return { payment, updatedInvoice };
-  }
-
-  /**
-   * Issue an invoice (changes status from DRAFT to ISSUED)
-   */
-  static async issueInvoice(id: string) {
-    const invoice = await prisma.invoice.findUnique({ where: { id } });
-    if (!invoice) throw new AppError("Invoice not found", 404);
-    if (invoice.status !== InvoiceStatus.DRAFT) throw new AppError("Only draft invoices can be issued", 400);
-
-    return prisma.invoice.update({
-      where: { id },
-      data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() }
+    await tx.invoiceItem.create({
+      data: {
+        invoiceId,
+        sourceType: "OTHER",
+        sourceId: null,
+        description: input.description,
+        quantity,
+        unitPriceCents: input.unitPriceCents,
+        lineTotalCents,
+      },
     });
+
+    const items = await tx.invoiceItem.findMany({ where: { invoiceId } });
+    const subtotalCents = items.reduce((s, i) => s + i.lineTotalCents, 0);
+    const totalCents = subtotalCents - invoice.discountCents + invoice.taxCents;
+
+    return tx.invoice.update({
+      where: { id: invoiceId },
+      data: { subtotalCents, totalCents },
+      include: invoiceInclude,
+    });
+  });
+}
+
+export async function recordPayment(
+  invoiceId: string,
+  input: z.infer<typeof recordPaymentSchema>,
+  recordedBy: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      include: { payments: true },
+    });
+
+    if (invoice.status === "VOID") {
+      throw new Error("INVOICE_VOID");
+    }
+    if (invoice.status === "PAID") {
+      throw new Error("INVOICE_PAID");
+    }
+
+    const payment = await tx.payment.create({
+      data: {
+        invoiceId,
+        method: input.method,
+        amountCents: input.amountCents,
+        transactionRef: input.transactionRef ?? null,
+        recordedBy,
+      },
+    });
+
+    const payments = await tx.payment.findMany({ where: { invoiceId } });
+    const totalPaid = payments.reduce((s, p) => s + p.amountCents, 0);
+    const newStatus =
+      totalPaid >= invoice.totalCents ? "PAID" : "PARTIALLY_PAID";
+
+    await tx.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: newStatus,
+        ...(invoice.status === "DRAFT" && !invoice.issuedAt
+          ? { issuedAt: new Date() }
+          : {}),
+      },
+    });
+
+    return payment;
+  });
+}
+
+export async function voidInvoice(
+  invoiceId: string,
+  input: z.infer<typeof voidInvoiceSchema>,
+) {
+  const reason = input.voidReason.trim();
+  if (!reason) {
+    throw new Error("VOID_REASON_REQUIRED");
   }
+
+  const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+  if (invoice.status === "VOID") {
+    throw new Error("ALREADY_VOID");
+  }
+
+  return prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { status: "VOID", voidReason: reason },
+    include: invoiceInclude,
+  });
+}
+
+export async function createInsuranceClaim(
+  invoiceId: string,
+  input: z.infer<typeof createClaimSchema>,
+) {
+  const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+  if (invoice.status === "VOID") {
+    throw new Error("INVOICE_VOID");
+  }
+
+  return prisma.insuranceClaim.create({
+    data: {
+      invoiceId,
+      provider: input.provider,
+      policyNo: input.policyNo,
+      claimedCents: input.claimedCents,
+    },
+  });
+}
+
+export async function updateInsuranceClaim(
+  claimId: string,
+  input: z.infer<typeof updateClaimSchema>,
+) {
+  return prisma.insuranceClaim.update({
+    where: { id: claimId },
+    data: { status: input.status },
+  });
+}
+
+export async function listOpenInvoicesForPatient(patientId: string) {
+  return prisma.invoice.findMany({
+    where: {
+      patientId,
+      status: { in: ["DRAFT", "ISSUED", "PARTIALLY_PAID"] },
+    },
+    select: {
+      id: true,
+      status: true,
+      totalCents: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function listInvoiceSummariesForPatient(patientId: string) {
+  return prisma.invoice.findMany({
+    where: { patientId },
+    select: {
+      id: true,
+      status: true,
+      totalCents: true,
+      createdAt: true,
+      issuedAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 }

@@ -2,16 +2,12 @@
   "name": "medicore",
   "private": true,
   "scripts": {
-    "build": "turbo run build",
     "dev": "turbo run dev",
-    "dev:web": "turbo run dev --filter=web",
-    "dev:api": "turbo run dev --filter=api",
+    "build": "turbo run build",
     "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "check-types": "turbo run check-types",
-    "db:migrate": "npm run prisma:migrate --workspace=api",
-    "db:seed": "npm run prisma:seed --workspace=api",
-    "db:studio": "npm run prisma:studio --workspace=api"
+    "db:migrate": "npm run migrate -w apps/api",
+    "db:studio": "npm run studio -w apps/api",
+    "db:seed": "npm run seed -w apps/api"
   },
   "devDependencies": {
     "prettier": "^3.7.4",

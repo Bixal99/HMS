@@ -1,133 +1,168 @@
-import prisma from "../../lib/prisma";
-import { CreateStaffInput, PaginationInput } from "@shared/validators";
-import { AppError } from "../../middleware/errorHandler";
-import bcrypt from "bcrypt";
-import { Prisma } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { prisma } from "../../lib/prisma";
+import type { z } from "zod";
+import type {
+  createLeaveSchema,
+  createStaffSchema,
+  replaceAvailabilitySchema,
+} from "./staff.validators";
 
-export class StaffService {
-  private static generateEmployeeCode(): string {
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
-    return `EMP-${random}`;
-  }
+type CreateStaffInput = z.infer<typeof createStaffSchema>;
+type ReplaceAvailabilityInput = z.infer<typeof replaceAvailabilitySchema>;
+type CreateLeaveInput = z.infer<typeof createLeaveSchema>;
 
-  static async createStaff(data: CreateStaffInput) {
-    // Check if user email already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email: data.email },
-    });
+function todayDayOfWeek() {
+  return new Date().getDay();
+}
 
-    if (existingUser) {
-      throw new AppError("Email is already in use", 400);
-    }
+function nowHHMM() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
 
-    const passwordHash = await bcrypt.hash(data.password, 10);
-    const employeeCode = this.generateEmployeeCode();
-
-    // Use a transaction to create User and Staff linked together
-    const result = await prisma.$transaction(async (tx) => {
-      // Ensure at least one department exists for testing/MVP
-      let department = await tx.department.findFirst();
-      if (!department) {
-        department = await tx.department.create({
-          data: { name: "General Medicine", description: "Default Department" },
-        });
-      }
-
-      const user = await tx.user.create({
-        data: {
-          firstName: data.firstName,
-          lastName: data.lastName,
-          email: data.email,
-          passwordHash,
-          phone: data.phone,
-          role: data.role,
-        },
-      });
-
-      const staff = await tx.staff.create({
-        data: {
-          userId: user.id,
-          employeeCode,
-          departmentId: department.id,
-          designation: data.designation,
-          specialization: data.specialization,
-        },
-        include: {
-          department: true,
-        },
-      });
-
-      return { user, staff };
-    });
-
-    // Strip password hash from response
-    const { passwordHash: _, ...userWithoutPassword } = result.user;
-    return { ...result.staff, user: userWithoutPassword };
-  }
-
-  static async getStaff(query: PaginationInput & { role?: string; departmentId?: string }) {
-    const { page, limit, search, role, departmentId } = query;
-    const skip = (page - 1) * limit;
-
-    const where: Prisma.StaffWhereInput = {
+export async function listStaff(filters: {
+  departmentId?: string;
+  specialization?: string;
+}) {
+  const staff = await prisma.staff.findMany({
+    where: {
       isActive: true,
-      ...(departmentId && { departmentId }),
-      ...(role && { user: { role } }),
-      ...(search && {
-        OR: [
-          { employeeCode: { contains: search, mode: "insensitive" } },
-          { user: { firstName: { contains: search, mode: "insensitive" } } },
-          { user: { lastName: { contains: search, mode: "insensitive" } } },
-          { specialization: { contains: search, mode: "insensitive" } },
-        ],
-      }),
-    };
+      ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
+      ...(filters.specialization
+        ? { specialization: { contains: filters.specialization, mode: "insensitive" } }
+        : {}),
+    },
+    include: {
+      user: { select: { id: true, email: true, name: true, role: true } },
+      department: true,
+      availability: true,
+    },
+    orderBy: { employeeCode: "asc" },
+  });
 
-    const [total, staff] = await Promise.all([
-      prisma.staff.count({ where }),
-      prisma.staff.findMany({
-        where,
-        skip,
-        take: limit,
-        include: {
-          user: {
-            select: { id: true, firstName: true, lastName: true, email: true, phone: true, role: true },
-          },
-          department: true,
-        },
-        orderBy: { dateJoined: "desc" },
-      }),
-    ]);
+  const day = todayDayOfWeek();
+  const now = nowHHMM();
 
+  return staff.map((s) => {
+    const todayBlocks = s.availability.filter((a) => a.dayOfWeek === day);
+    const availableToday = todayBlocks.some(
+      (b) => b.startTime <= now && b.endTime > now,
+    );
     return {
-      data: staff,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      id: s.id,
+      employeeCode: s.employeeCode,
+      designation: s.designation,
+      specialization: s.specialization,
+      department: s.department,
+      user: s.user,
+      availableToday,
+      todayBlocks,
     };
-  }
+  });
+}
 
-  static async getStaffById(id: string) {
-    const staff = await prisma.staff.findUnique({
-      where: { id },
-      include: {
-        user: {
-          select: { id: true, firstName: true, lastName: true, email: true, phone: true, role: true },
-        },
-        department: true,
-        availability: {
-          orderBy: { dayOfWeek: "asc" },
-        },
+export async function createStaff(input: CreateStaffInput) {
+  const passwordHash = await bcrypt.hash(input.password, 12);
+  return prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        email: input.email,
+        passwordHash,
+        role: input.role,
+        name: input.name,
       },
     });
+    return tx.staff.create({
+      data: {
+        userId: user.id,
+        employeeCode: input.employeeCode,
+        departmentId: input.departmentId,
+        designation: input.designation,
+        specialization: input.specialization || null,
+      },
+      include: {
+        user: { select: { id: true, email: true, name: true, role: true } },
+        department: true,
+      },
+    });
+  });
+}
 
-    if (!staff) {
-      throw new AppError("Staff not found", 404);
-    }
+export async function getAvailability(staffId: string) {
+  return prisma.staffAvailability.findMany({
+    where: { staffId },
+    orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+  });
+}
 
-    return staff;
-  }
+export async function replaceAvailability(
+  staffId: string,
+  input: ReplaceAvailabilityInput,
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.staffAvailability.deleteMany({ where: { staffId } });
+    if (input.blocks.length === 0) return [];
+    await tx.staffAvailability.createMany({
+      data: input.blocks.map((b) => ({
+        staffId,
+        dayOfWeek: b.dayOfWeek,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        slotDurationMins: b.slotDurationMins ?? 15,
+      })),
+    });
+    return tx.staffAvailability.findMany({
+      where: { staffId },
+      orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+    });
+  });
+}
+
+export async function createLeaveRequest(staffId: string, input: CreateLeaveInput) {
+  return prisma.staffLeaveRequest.create({
+    data: {
+      staffId,
+      startDate: input.startDate,
+      endDate: input.endDate,
+      reason: input.reason,
+    },
+  });
+}
+
+export async function listLeaveRequests(status?: "PENDING" | "APPROVED" | "REJECTED") {
+  return prisma.staffLeaveRequest.findMany({
+    where: status ? { status } : undefined,
+    include: {
+      staff: {
+        include: {
+          user: { select: { name: true, email: true } },
+          department: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function patchLeaveRequest(
+  id: string,
+  status: "APPROVED" | "REJECTED",
+  approvedBy: string,
+) {
+  return prisma.staffLeaveRequest.update({
+    where: { id },
+    data: { status, approvedBy },
+  });
+}
+
+export async function countPendingLeave() {
+  return prisma.staffLeaveRequest.count({ where: { status: "PENDING" } });
+}
+
+export async function findStaffByUserId(userId: string) {
+  return prisma.staff.findUnique({ where: { userId } });
+}
+
+export async function listDepartments() {
+  return prisma.department.findMany({ orderBy: { name: "asc" } });
 }

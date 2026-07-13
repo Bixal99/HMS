@@ -1,60 +1,164 @@
-import { Request, Response, NextFunction } from "express";
-import { PharmacyService } from "./pharmacy.service";
-import { paginationSchema } from "@shared/validators";
-import { AppError } from "../../middleware/errorHandler";
-import { ApiResponse } from "@shared/types";
+import type { Request, Response } from "express";
+import { parseISO } from "date-fns";
+import {
+  createPurchaseOrder,
+  dispensePrescriptionItem,
+  getPharmacyAlerts,
+  getPharmacyQueue,
+  getPrescriptionDetail,
+  listBatchesForMedicine,
+  listMedicinesWithStock,
+  listPurchaseOrders,
+  listSuppliers,
+  receivePurchaseOrder,
+  updatePharmacyStage,
+} from "./pharmacy.service";
+import {
+  createPoSchema,
+  dispenseSchema,
+  receivePoSchema,
+  stageSchema,
+} from "./pharmacy.validators";
 
-export class PharmacyController {
-  static async getMedicines(req: Request, res: Response, next: NextFunction) {
-    try {
-      const query = paginationSchema.parse(req.query);
-      const { data, meta } = await PharmacyService.getMedicines(query);
-      res.json({ status: "success", data, meta } as ApiResponse);
-    } catch (error: any) {
-      next(error.name === "ZodError" ? new AppError(error.errors[0].message, 400) : error);
-    }
+function paramId(req: Request, key = "id"): string {
+  const id = req.params[key];
+  return Array.isArray(id) ? id[0]! : String(id);
+}
+
+export async function listMedicinesHandler(_req: Request, res: Response) {
+  const data = await listMedicinesWithStock();
+  return res.json({ data });
+}
+
+export async function queueHandler(_req: Request, res: Response) {
+  const data = await getPharmacyQueue();
+  return res.json({ data });
+}
+
+export async function stageHandler(req: Request, res: Response) {
+  const parsed = stageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid stage" });
+  }
+  const updated = await updatePharmacyStage(
+    paramId(req, "prescriptionId"),
+    parsed.data.pharmacyStage,
+  );
+  return res.json(updated);
+}
+
+export async function dispenseHandler(req: Request, res: Response) {
+  const parsed = dispenseSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body" });
   }
 
-  static async createMedicine(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { name, genericName, form, strength, manufacturer, reorderThreshold } = req.body;
-      if (!name || !genericName || !form || !strength) throw new AppError("Name, generic name, form, and strength are required", 400);
-      const medicine = await PharmacyService.createMedicine({ name, genericName, form, strength, manufacturer, reorderThreshold });
-      res.status(201).json({ status: "success", data: medicine, message: "Medicine added to catalog" } as ApiResponse);
-    } catch (error) {
-      next(error);
+  try {
+    const result = await dispensePrescriptionItem(
+      paramId(req, "prescriptionItemId"),
+      req.user!.id,
+      parsed.data.overrideBatchId,
+      parsed.data.quantity,
+    );
+    return res.status(201).json(result);
+  } catch (err) {
+    if (!(err instanceof Error)) throw err;
+    if (err.message === "ALREADY_DISPENSED") {
+      return res.status(400).json({ error: "Item already fully dispensed" });
     }
+    if (err.message === "QUANTITY_EXCEEDS_REMAINING") {
+      return res.status(400).json({ error: "Quantity exceeds remaining amount" });
+    }
+    if (err.message === "BATCH_NOT_FOUND") {
+      return res.status(400).json({ error: "Override batch not available" });
+    }
+    if (err.message.startsWith("INSUFFICIENT_STOCK:")) {
+      const short = err.message.split(":")[1];
+      return res.status(409).json({
+        error: `Insufficient stock: ${short} unit(s) short across all batches`,
+      });
+    }
+    throw err;
+  }
+}
+
+export async function suppliersHandler(_req: Request, res: Response) {
+  const data = await listSuppliers();
+  return res.json({ data });
+}
+
+export async function createPoHandler(req: Request, res: Response) {
+  const parsed = createPoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  const po = await createPurchaseOrder({
+    supplierId: parsed.data.supplierId,
+    status: parsed.data.status ?? "ORDERED",
+    items: parsed.data.items,
+  });
+  return res.status(201).json(po);
+}
+
+export async function listPoHandler(_req: Request, res: Response) {
+  const data = await listPurchaseOrders();
+  return res.json({ data });
+}
+
+export async function receivePoHandler(req: Request, res: Response) {
+  const parsed = receivePoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body" });
   }
 
-  static async addBatch(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { medicineId, batchNo, quantityInStock, unitCost, expiryDate } = req.body;
-      if (!medicineId || !batchNo || !quantityInStock || !unitCost || !expiryDate) throw new AppError("All batch fields are required", 400);
-      const batch = await PharmacyService.addBatch({ medicineId, batchNo, quantityInStock, unitCost, expiryDate });
-      res.status(201).json({ status: "success", data: batch, message: "Batch added" } as ApiResponse);
-    } catch (error) {
-      next(error);
+  try {
+    const po = await receivePurchaseOrder(
+      paramId(req),
+      parsed.data.items.map((i) => ({
+        purchaseOrderItemId: i.purchaseOrderItemId,
+        batchNo: i.batchNo,
+        expiryDate: parseISO(i.expiryDate),
+      })),
+    );
+    return res.json(po);
+  } catch (err) {
+    if (err instanceof Error && err.message === "ALREADY_RECEIVED") {
+      return res.status(400).json({ error: "Purchase order already received" });
     }
+    if (err instanceof Error && err.message === "INVALID_PO_ITEM") {
+      return res.status(400).json({ error: "Invalid purchase order item" });
+    }
+    throw err;
   }
+}
 
-  static async dispense(req: Request, res: Response, next: NextFunction) {
-    try {
-      const { prescriptionItemId } = req.body;
-      if (!prescriptionItemId) throw new AppError("prescriptionItemId is required", 400);
-      const user = (req as any).user;
-      const dispenses = await PharmacyService.dispenseMedicine(prescriptionItemId, user.id);
-      res.json({ status: "success", data: dispenses, message: "Dispensed successfully" } as ApiResponse);
-    } catch (error) {
-      next(error);
-    }
-  }
+export async function alertsHandler(_req: Request, res: Response) {
+  const data = await getPharmacyAlerts();
+  return res.json(data);
+}
 
-  static async getLowStock(req: Request, res: Response, next: NextFunction) {
-    try {
-      const alerts = await PharmacyService.getLowStockAlerts();
-      res.json({ status: "success", data: alerts } as ApiResponse);
-    } catch (error) {
-      next(error);
-    }
-  }
+export async function alertsCountHandler(_req: Request, res: Response) {
+  const data = await getPharmacyAlerts();
+  return res.json({ count: data.count });
+}
+
+export async function prescriptionDetailHandler(req: Request, res: Response) {
+  const rx = await getPrescriptionDetail(paramId(req, "prescriptionId"));
+  if (!rx) return res.status(404).json({ error: "Not found" });
+
+  const items = await Promise.all(
+    rx.items.map(async (item) => {
+      const batches = await listBatchesForMedicine(item.medicineId);
+      const dispensed = item.dispenses.reduce((s, d) => s + d.quantityDispensed, 0);
+      return {
+        ...item,
+        dispensed,
+        remaining: item.quantityPrescribed - dispensed,
+        fefoBatch: batches[0] ?? null,
+        availableBatches: batches,
+      };
+    }),
+  );
+
+  return res.json({ ...rx, items });
 }

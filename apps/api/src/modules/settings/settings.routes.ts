@@ -1,13 +1,32 @@
 import { Router } from "express";
-import { SettingsController } from "./settings.controller";
-import { requireAuth, requireRole } from "../../middleware/auth.middleware";
-import { Role } from "@shared/types";
+import { authenticate } from "../../middleware/authenticate";
+import { authorize } from "../../middleware/authorize";
+import {
+  createDepartmentHandler,
+  listDepartmentsHandler,
+  listSettingsHandler,
+  listUsersHandler,
+  publicSettingsHandler,
+  updateDepartmentHandler,
+  updateSettingHandler,
+  userRoleHandler,
+  userStatusHandler,
+} from "./settings.controller";
 
-const router = Router();
+export const settingsRoutes = Router();
+settingsRoutes.get("/public", publicSettingsHandler);
+settingsRoutes.use(authenticate);
+settingsRoutes.get("/", authorize("ADMIN"), listSettingsHandler);
+settingsRoutes.put("/:key", authorize("ADMIN"), updateSettingHandler);
 
-router.use(requireAuth);
+export const departmentsRoutes = Router();
+departmentsRoutes.use(authenticate);
+departmentsRoutes.get("/", authorize("ADMIN", "RECEPTIONIST"), listDepartmentsHandler);
+departmentsRoutes.post("/", authorize("ADMIN"), createDepartmentHandler);
+departmentsRoutes.patch("/:id", authorize("ADMIN"), updateDepartmentHandler);
 
-router.get("/", requireRole([Role.ADMIN]), SettingsController.getSettings);
-router.put("/", requireRole([Role.ADMIN]), SettingsController.updateSettings);
-
-export default router;
+export const usersRoutes = Router();
+usersRoutes.use(authenticate);
+usersRoutes.get("/", authorize("ADMIN"), listUsersHandler);
+usersRoutes.patch("/:id/status", authorize("ADMIN"), userStatusHandler);
+usersRoutes.patch("/:id/role", authorize("ADMIN"), userRoleHandler);
