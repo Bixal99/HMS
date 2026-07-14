@@ -45,7 +45,10 @@ export function ExportDialog({ reportType, start, end }: ExportDialogProps) {
       const a = document.createElement("a");
       a.href = url;
       a.download = `${reportType}-report.${format}`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       URL.revokeObjectURL(url);
       toast.success(`${format.toUpperCase()} downloaded`);
       setOpen(false);
@@ -58,7 +61,13 @@ export function ExportDialog({ reportType, start, end }: ExportDialogProps) {
 
   return (
     <>
-      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        suppressHydrationWarning
+        onClick={() => setOpen(true)}
+      >
         Export
       </Button>
       <Drawer open={open} onOpenChange={setOpen}>
@@ -72,17 +81,21 @@ export function ExportDialog({ reportType, start, end }: ExportDialogProps) {
               snapshot.
             </p>
             <Button
+              type="button"
               className="w-full"
               disabled={pending !== null}
-              onClick={() => download("csv")}
+              suppressHydrationWarning
+              onClick={() => void download("csv")}
             >
               {pending === "csv" ? "Preparing…" : "Download CSV"}
             </Button>
             <Button
+              type="button"
               className="w-full"
               variant="outline"
               disabled={pending !== null}
-              onClick={() => download("pdf")}
+              suppressHydrationWarning
+              onClick={() => void download("pdf")}
             >
               {pending === "pdf" ? "Preparing…" : "Download PDF"}
             </Button>

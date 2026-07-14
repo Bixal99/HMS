@@ -1,4 +1,5 @@
 import { homeForRole } from "@/lib/role-routes";
+import { indexRedirectFor, INDEX_PARENT_SEGMENTS } from "@/lib/nav-index-routes";
 
 export type BreadcrumbItem = {
   label: string;
@@ -82,7 +83,6 @@ export function breadcrumbsFromPath(
     return [{ label: "Home", href: home }];
   }
 
-  // Role dashboard homes: single crumb "Dashboard"
   if (parts[0] === "dashboard" && parts.length === 2) {
     return [{ label: "Dashboard" }];
   }
@@ -92,7 +92,6 @@ export function breadcrumbsFromPath(
 
   const crumbs: BreadcrumbItem[] = [];
 
-  // Patient portal: root breadcrumb is Dashboard → /portal
   if (role === "PATIENT") {
     crumbs.push({ label: "Dashboard", href: "/portal" });
     if (parts[0] === "portal" && parts.length === 1) {
@@ -105,13 +104,17 @@ export function breadcrumbsFromPath(
     const segment = parts[i];
     href += `/${segment}`;
     const parent = i > 0 ? parts[i - 1] : undefined;
-    let label = labelForSegment(segment, parent);
+    const label = labelForSegment(segment, parent);
     const isLast = i === parts.length - 1;
 
     if (segment === "dashboard" && parts.length > 2) continue;
     if (role === "PATIENT" && segment === "portal" && parts.length > 1) continue;
-    if (role === "PATIENT" && segment === "appointments" && parts[0] === "appointments") {
-      // Book/intake under appointments: link to My appointments, not dead /appointments
+
+    if (
+      role === "PATIENT" &&
+      segment === "appointments" &&
+      parts[0] === "appointments"
+    ) {
       crumbs.push({
         label: "Book",
         href: isLast ? undefined : href,
@@ -119,12 +122,9 @@ export function breadcrumbsFromPath(
       continue;
     }
 
-    // Fix dead /appointments parent for staff and patient
-    if (segment === "appointments" && !isLast) {
-      crumbs.push({
-        label: "Appointments",
-        href: role === "PATIENT" ? "/portal/appointments" : "/appointments/queue",
-      });
+    if (!isLast && INDEX_PARENT_SEGMENTS.has(segment) && role) {
+      const target = indexRedirectFor(segment, role) ?? href;
+      crumbs.push({ label, href: target });
       continue;
     }
 
@@ -134,8 +134,11 @@ export function breadcrumbsFromPath(
     });
   }
 
-  // Avoid duplicate trailing Dashboard
-  if (crumbs.length > 1 && crumbs[0]?.label === "Dashboard" && crumbs[1]?.label === "Dashboard") {
+  if (
+    crumbs.length > 1 &&
+    crumbs[0]?.label === "Dashboard" &&
+    crumbs[1]?.label === "Dashboard"
+  ) {
     return crumbs.slice(1);
   }
 
