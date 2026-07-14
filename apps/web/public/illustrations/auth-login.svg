@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" fill="none" role="img" aria-labelledby="loginTitle">
+  <title id="loginTitle">Clinician reviewing patient care on a tablet</title>
+  <rect width="640" height="480" rx="24" fill="url(#loginBg)"/>
+  <defs>
+    <linearGradient id="loginBg" x1="0" y1="0" x2="640" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1F3A"/>
+      <stop offset="1" stop-color="#1463FF"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="180" y1="100" x2="480" y2="380" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#E8F1FF" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <circle cx="520" cy="80" r="64" fill="#12C7D8" fill-opacity="0.25"/>
+  <circle cx="90" cy="400" r="80" fill="#FFFFFF" fill-opacity="0.08"/>
+  <rect x="168" y="108" width="304" height="264" rx="28" fill="url(#cardGrad)"/>
+  <rect x="200" y="148" width="160" height="16" rx="8" fill="#1463FF" fill-opacity="0.85"/>
+  <rect x="200" y="180" width="240" height="10" rx="5" fill="#91A4BD"/>
+  <rect x="200" y="204" width="200" height="10" rx="5" fill="#B7C5D8"/>
+  <path d="M200 260 H420" stroke="#1463FF" stroke-width="3" stroke-linecap="round"/>
+  <path d="M200 260 L236 236 L268 276 L312 220 L352 252 L388 240 L420 248" stroke="#12C7D8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="456" cy="320" r="36" fill="#1463FF"/>
+  <path d="M444 320h24M456 308v24" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <rect x="248" y="340" width="120" height="12" rx="6" fill="#C5D3E6"/>
+</svg>

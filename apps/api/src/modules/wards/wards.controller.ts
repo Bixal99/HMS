@@ -13,9 +13,21 @@ import {
   updateBedStatus,
 } from "./admissions.service";
 import {
+  createNursingNote,
+  getMarSuggestions,
+  listActiveAdmissions,
+  listMedicationAdministrations,
+  listNursingNotes,
+  recordMedicationAdministration,
+  updateCarePlan,
+} from "./nursing.service";
+import {
   admitSchema,
   bedStatusSchema,
+  carePlanSchema,
   dischargeSchema,
+  medicationAdminSchema,
+  nursingNoteSchema,
   transferSchema,
 } from "./wards.validators";
 
@@ -138,4 +150,62 @@ export async function patchBedStatusHandler(req: Request, res: Response) {
     }
     throw err;
   }
+}
+
+export async function activeAdmissionsHandler(_req: Request, res: Response) {
+  const data = await listActiveAdmissions();
+  return res.json({ data });
+}
+
+export async function patchCarePlanHandler(req: Request, res: Response) {
+  const parsed = carePlanSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body" });
+  }
+  const admission = await updateCarePlan(paramId(req), parsed.data.carePlan);
+  return res.json(admission);
+}
+
+export async function listNotesHandler(req: Request, res: Response) {
+  const data = await listNursingNotes(paramId(req));
+  return res.json({ data });
+}
+
+export async function createNoteHandler(req: Request, res: Response) {
+  const parsed = nursingNoteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body" });
+  }
+  const staffId = await resolveStaffId(req.user!.id);
+  if (!staffId) return res.status(403).json({ error: "No staff profile" });
+
+  const note = await createNursingNote(
+    paramId(req),
+    staffId,
+    parsed.data.body,
+    parsed.data.isUrgent,
+  );
+  return res.status(201).json(note);
+}
+
+export async function listMedicationsHandler(req: Request, res: Response) {
+  const data = await listMedicationAdministrations(paramId(req));
+  return res.json({ data });
+}
+
+export async function recordMedicationHandler(req: Request, res: Response) {
+  const parsed = medicationAdminSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body" });
+  }
+  const staffId = await resolveStaffId(req.user!.id);
+  if (!staffId) return res.status(403).json({ error: "No staff profile" });
+
+  const record = await recordMedicationAdministration(paramId(req), staffId, parsed.data);
+  return res.status(201).json(record);
+}
+
+export async function marSuggestionsHandler(req: Request, res: Response) {
+  const data = await getMarSuggestions(paramId(req));
+  return res.json({ data });
 }

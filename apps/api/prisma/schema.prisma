@@ -58,6 +58,7 @@ model User {
   staff    Staff?
   accounts Account[]
   sessions Session[]
+  notifications Notification[]
 }
 
 model Account {
@@ -96,15 +97,33 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  body      String?
+  href      String?
+  meta      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
 model Department {
   id          String  @id @default(uuid())
   name        String  @unique
   description String?
 
-  staff          Staff[]
-  wards          Ward[]
-  inventoryItems InventoryItem[]
-  equipment      Equipment[]
+  staff             Staff[]
+  wards             Ward[]
+  inventoryItems    InventoryItem[]
+  equipment         Equipment[]
+  symptomCategories SymptomCategory[]
 }
 
 model Staff {
@@ -125,6 +144,8 @@ model Staff {
   waitlist       AppointmentWaitlist[]
   encounters     Encounter[]
   prescriptions  Prescription[]
+  surgeryRequestsRequested SurgeryRequest[] @relation("SurgeryRequestedBy")
+  surgeriesAsPrimary       SurgeryRequest[] @relation("SurgeryPrimarySurgeon")
 }
 
 model StaffAvailability {
@@ -187,9 +208,12 @@ model Patient {
   waitlist     AppointmentWaitlist[]
   encounters   Encounter[]
   prescriptions Prescription[]
-  labOrders    LabOrder[]
-  admissions   Admission[]
-  invoices     Invoice[]
+  labOrders         LabOrder[]
+  radiologyOrders   RadiologyOrder[]
+  admissions        Admission[]
+  invoices          Invoice[]
+  intakes           PatientIntake[]
+  surgeryRequests   SurgeryRequest[]
 
   @@index([lastName, firstName])
   @@index([phone])
@@ -219,37 +243,159 @@ model PatientDocument {
 }
 
 enum AppointmentStatus {
-  SCHEDULED
+  PENDING
+  CONFIRMED
   CHECKED_IN
-  IN_PROGRESS
+  WAITING
+  IN_CONSULTATION
   COMPLETED
   CANCELLED
+  REJECTED
+  EXPIRED
   NO_SHOW
 }
 
+enum AppointmentPriority {
+  LOW
+  NORMAL
+  URGENT
+  EMERGENCY
+}
+
+enum AppointmentSource {
+  PATIENT_PORTAL
+  RECEPTION
+  PHONE
+  WALK_IN
+}
+
+enum AppointmentVisitType {
+  NEW_PATIENT
+  FOLLOW_UP
+  ROUTINE
+}
+
+enum AppointmentEventType {
+  APPOINTMENT_CREATED
+  STATUS_CHANGED
+  DOCTOR_ASSIGNED
+  DOCTOR_CHANGED
+  RESCHEDULE_REQUESTED
+  RESCHEDULE_APPROVED
+  ALTERNATIVE_OFFERED
+  PATIENT_CHECKED_IN
+  REMINDER_SENT
+  PRIORITY_CHANGED
+}
+
+enum RejectionReasonCode {
+  DOCTOR_UNAVAILABLE
+  CLINIC_CLOSED
+  DUPLICATE_BOOKING
+  PATIENT_REQUESTED_CANCEL
+  OTHER
+}
+
 model Appointment {
-  id              String            @id @default(uuid())
-  patientId       String
-  doctorId        String
-  scheduledAt     DateTime
-  durationMinutes Int               @default(15)
-  status          AppointmentStatus @default(SCHEDULED)
-  reasonForVisit  String?
-  createdBy       String
-  cancelReason    String?
-  checkedInAt     DateTime?
-  inProgressAt    DateTime?
-  completedAt     DateTime?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id                  String                 @id @default(uuid())
+  patientId           String
+  doctorId            String
+  scheduledAt         DateTime
+  durationMinutes     Int                    @default(15)
+  status              AppointmentStatus      @default(PENDING)
+  priority            AppointmentPriority    @default(NORMAL)
+  appointmentSource   AppointmentSource      @default(RECEPTION)
+  visitType           AppointmentVisitType   @default(ROUTINE)
+  reasonForVisit      String?
+  createdBy           String
+  cancelReason        String?
+  rejectionReasonCode RejectionReasonCode?
+  rejectionReason     String?
+  pendingExpiresAt    DateTime?
+  confirmedAt         DateTime?
+  confirmedById       String?
+  assignedDoctorAt    DateTime?
+  assignedDoctorById  String?
+  checkedInAt         DateTime?
+  inProgressAt        DateTime?
+  completedAt         DateTime?
+  isWalkIn            Boolean                @default(false)
+  queueNumber         Int?
+  offeredAlternatives Json?
+  rescheduleRequestedAt DateTime?
+  rescheduleRequestedSlot DateTime?
+  rescheduleRequestedDoctorId String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
 
   patient Patient @relation(fields: [patientId], references: [id])
   doctor  Staff   @relation(fields: [doctorId], references: [id])
   encounter Encounter?
+  intake  PatientIntake?
+  events  AppointmentEvent[]
 
-  @@unique([doctorId, scheduledAt])
   @@index([doctorId, scheduledAt])
   @@index([patientId])
+  @@index([status, pendingExpiresAt])
+  @@index([status, priority])
+}
+
+model AppointmentEvent {
+  id            String               @id @default(uuid())
+  appointmentId String
+  eventType     AppointmentEventType
+  fromStatus    AppointmentStatus?
+  toStatus      AppointmentStatus?
+  actorUserId   String?
+  note          String?
+  metadata      Json?
+  ipAddress     String?
+  createdAt     DateTime             @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId, createdAt])
+}
+
+enum IntakeSeverity {
+  MILD
+  MODERATE
+  SEVERE
+}
+
+model SymptomCategory {
+  id                    String  @id @default(uuid())
+  name                  String
+  description           String?
+  suggestedDepartmentId String
+
+  suggestedDepartment Department      @relation(fields: [suggestedDepartmentId], references: [id])
+  intakes             PatientIntake[]
+
+  @@index([suggestedDepartmentId])
+}
+
+model PatientIntake {
+  id                 String         @id @default(uuid())
+  patientId          String
+  symptomCategoryId  String
+  chiefComplaintText String
+  durationValue      Int
+  durationUnit       String
+  severity           IntakeSeverity
+  redFlagsSelected   Json
+  isUrgent           Boolean        @default(false)
+  appointmentId      String?        @unique
+  lockedAt           DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  patient         Patient         @relation(fields: [patientId], references: [id])
+  symptomCategory SymptomCategory @relation(fields: [symptomCategoryId], references: [id])
+  appointment     Appointment?    @relation(fields: [appointmentId], references: [id])
+
+  @@index([patientId])
+  @@index([symptomCategoryId])
 }
 
 model AppointmentWaitlist {
@@ -290,11 +436,13 @@ model Encounter {
   doctor      Staff        @relation(fields: [doctorId], references: [id])
   appointment Appointment? @relation(fields: [appointmentId], references: [id])
 
-  revisions     EncounterRevision[]
-  diagnoses     Diagnosis[]
-  vitals        Vitals[]
-  prescriptions Prescription[]
-  labOrders     LabOrder[]
+  revisions       EncounterRevision[]
+  diagnoses       Diagnosis[]
+  vitals          Vitals[]
+  prescriptions   Prescription[]
+  labOrders       LabOrder[]
+  radiologyOrders RadiologyOrder[]
+  surgeryRequests SurgeryRequest[]
 
   @@index([patientId])
   @@index([doctorId])
@@ -390,9 +538,10 @@ model PrescriptionItem {
   quantityPrescribed Int    @default(1)
   notes              String?
 
-  prescription Prescription @relation(fields: [prescriptionId], references: [id])
-  medicine     Medicine     @relation(fields: [medicineId], references: [id])
-  dispenses    Dispense[]
+  prescription               Prescription               @relation(fields: [prescriptionId], references: [id])
+  medicine                   Medicine                   @relation(fields: [medicineId], references: [id])
+  dispenses                  Dispense[]
+  medicationAdministrations  MedicationAdministration[]
 }
 
 model MedicineBatch {
@@ -578,14 +727,47 @@ model Admission {
   expectedDischargeAt DateTime?
   dischargedAt        DateTime?
   dischargeSummary    String?
+  carePlan            String?
   invoicedAt          DateTime?
 
-  patient   Patient       @relation(fields: [patientId], references: [id])
-  bed       Bed           @relation(fields: [bedId], references: [id])
-  transfers BedTransfer[]
+  patient                     Patient                     @relation(fields: [patientId], references: [id])
+  bed                         Bed                         @relation(fields: [bedId], references: [id])
+  transfers                   BedTransfer[]
+  nursingNotes                NursingNote[]
+  medicationAdministrations   MedicationAdministration[]
 
   @@index([patientId])
   @@index([bedId])
+}
+
+model NursingNote {
+  id          String   @id @default(uuid())
+  admissionId String
+  authorId    String
+  body        String
+  isUrgent    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  admission Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+
+  @@index([admissionId])
+}
+
+model MedicationAdministration {
+  id                 String   @id @default(uuid())
+  admissionId        String
+  prescriptionItemId String?
+  medicineName       String
+  dose               String
+  route              String
+  givenAt            DateTime @default(now())
+  givenBy            String
+  notes              String?
+
+  admission        Admission         @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+  prescriptionItem PrescriptionItem? @relation(fields: [prescriptionItemId], references: [id])
+
+  @@index([admissionId])
 }
 
 model BedTransfer {
@@ -612,7 +794,111 @@ enum InvoiceSourceType {
   LAB
   PHARMACY
   BED
+  RADIOLOGY
+  SURGERY
   OTHER
+}
+
+enum RadiologyOrderStatus {
+  ORDERED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum RadiologyItemStatus {
+  ORDERED
+  IN_PROGRESS
+  REPORTED
+}
+
+model RadiologyModality {
+  id         String @id @default(uuid())
+  name       String @unique
+  code       String @unique
+  priceCents Int    @default(0)
+
+  orderItems RadiologyOrderItem[]
+}
+
+model RadiologyOrder {
+  id          String               @id @default(uuid())
+  encounterId String
+  patientId   String
+  orderedBy   String
+  status      RadiologyOrderStatus @default(ORDERED)
+  createdAt   DateTime             @default(now())
+
+  encounter Encounter            @relation(fields: [encounterId], references: [id])
+  patient   Patient              @relation(fields: [patientId], references: [id])
+  items     RadiologyOrderItem[]
+}
+
+model RadiologyOrderItem {
+  id               String              @id @default(uuid())
+  radiologyOrderId String
+  modalityId       String
+  status           RadiologyItemStatus @default(ORDERED)
+  invoicedAt       DateTime?
+
+  radiologyOrder RadiologyOrder  @relation(fields: [radiologyOrderId], references: [id], onDelete: Cascade)
+  modality       RadiologyModality @relation(fields: [modalityId], references: [id])
+  report         RadiologyReport?
+
+  @@index([radiologyOrderId])
+}
+
+model RadiologyReport {
+  id                   String   @id @default(uuid())
+  radiologyOrderItemId String   @unique
+  findings             String?
+  impression           String?
+  reportFileUrl        String?
+  enteredBy            String
+  reportedAt           DateTime @default(now())
+
+  radiologyOrderItem RadiologyOrderItem @relation(fields: [radiologyOrderItemId], references: [id], onDelete: Cascade)
+}
+
+enum SurgeryStatus {
+  REQUESTED
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum SurgeryUrgency {
+  ELECTIVE
+  URGENT
+  EMERGENCY
+}
+
+model SurgeryRequest {
+  id              String         @id @default(uuid())
+  patientId       String
+  encounterId     String?
+  requestedBy     String
+  procedureName   String
+  urgency         SurgeryUrgency @default(ELECTIVE)
+  status          SurgeryStatus  @default(REQUESTED)
+  feeCents        Int?
+  orRoom          String?
+  scheduledStart  DateTime?
+  scheduledEnd    DateTime?
+  primarySurgeonId String?
+  scheduleNotes   String?
+  operativeNotes  String?
+  invoicedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  patient         Patient    @relation(fields: [patientId], references: [id])
+  encounter       Encounter? @relation(fields: [encounterId], references: [id])
+  requestedByStaff Staff     @relation("SurgeryRequestedBy", fields: [requestedBy], references: [id])
+  primarySurgeon  Staff?     @relation("SurgeryPrimarySurgeon", fields: [primarySurgeonId], references: [id])
+
+  @@index([patientId])
+  @@index([status])
 }
 
 enum PaymentMethod {

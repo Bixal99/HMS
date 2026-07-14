@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate";
-import { authorize } from "../../middleware/authorize";
+import { authorizeAbility } from "../../middleware/authorizeAbility";
 import { logSensitiveView } from "../../middleware/logSensitiveView";
 import {
   diagnosisHandler,
@@ -10,6 +10,8 @@ import {
   listMineHandler,
   patchNotesHandler,
   prescriptionHandler,
+  requestAdmitHandler,
+  requestFollowUpHandler,
   revisionsHandler,
   startHandler,
   vitalsHandler,
@@ -19,28 +21,55 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get("/mine", authorize("PATIENT"), listMineHandler);
+router.get("/mine", authorizeAbility("read", "Encounter"), listMineHandler);
 
-router.post("/", authorize("DOCTOR"), startHandler);
+router.post("/", authorizeAbility("create", "Encounter"), startHandler);
 
 router.get(
   "/:id",
-  authorize("DOCTOR", "NURSE", "ADMIN", "PATIENT"),
+  authorizeAbility("read", "Encounter"),
   logSensitiveView("Encounter"),
   getHandler,
 );
 
-router.patch("/:id", authorize("DOCTOR"), patchNotesHandler);
-router.patch("/:id/finalize", authorize("DOCTOR"), finalizeHandler);
+router.patch("/:id", authorizeAbility("update", "Encounter"), patchNotesHandler);
+router.patch(
+  "/:id/finalize",
+  authorizeAbility("update", "Encounter"),
+  finalizeHandler,
+);
 
-router.post("/:id/vitals", authorize("DOCTOR", "NURSE"), vitalsHandler);
-router.post("/:id/diagnoses", authorize("DOCTOR"), diagnosisHandler);
-router.post("/:id/prescriptions", authorize("DOCTOR"), prescriptionHandler);
+router.post(
+  "/:id/request-admit",
+  authorizeAbility("create", "Admission"),
+  requestAdmitHandler,
+);
+router.post(
+  "/:id/request-follow-up",
+  authorizeAbility("create", "Appointment"),
+  requestFollowUpHandler,
+);
 
-router.get("/:id/revisions", authorize("DOCTOR", "ADMIN"), revisionsHandler);
+router.post("/:id/vitals", authorizeAbility("create", "Vitals"), vitalsHandler);
+router.post(
+  "/:id/diagnoses",
+  authorizeAbility("create", "Diagnosis"),
+  diagnosisHandler,
+);
+router.post(
+  "/:id/prescriptions",
+  authorizeAbility("create", "Prescription"),
+  prescriptionHandler,
+);
+
+router.get(
+  "/:id/revisions",
+  authorizeAbility("read", "Encounter"),
+  revisionsHandler,
+);
 router.get(
   "/:id/export",
-  authorize("DOCTOR", "PATIENT", "ADMIN"),
+  authorizeAbility("read", "Encounter"),
   exportPdfHandler,
 );
 

@@ -1,19 +1,24 @@
 import type { Request, Response } from "express";
 import {
+  changeOwnPassword,
   changeUserRole,
   createDepartment,
   getAllSettings,
   getPublicSettings,
+  getUserMe,
   listDepartments,
   listUsers,
   setUserActive,
   updateDepartment,
   updateSetting,
+  updateUserMe,
 } from "./settings.service";
 import {
+  changePasswordSchema,
   createDepartmentSchema,
   settingKeySchema,
   updateDepartmentSchema,
+  updateMeSchema,
   updateSettingBodySchema,
   userRoleSchema,
   userStatusSchema,
@@ -117,6 +122,50 @@ export async function userRoleHandler(req: Request, res: Response) {
       return res
         .status(400)
         .json({ error: "Cannot demote the last active Admin" });
+    }
+    return res.status(404).json({ error: "User not found" });
+  }
+}
+
+export async function meHandler(req: Request, res: Response) {
+  try {
+    const data = await getUserMe(req.user!.id);
+    return res.json(data);
+  } catch {
+    return res.status(404).json({ error: "User not found" });
+  }
+}
+
+export async function updateMeHandler(req: Request, res: Response) {
+  const parsed = updateMeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Name is required" });
+  }
+  try {
+    const data = await updateUserMe(req.user!.id, parsed.data.name);
+    return res.json(data);
+  } catch {
+    return res.status(404).json({ error: "User not found" });
+  }
+}
+
+export async function changePasswordHandler(req: Request, res: Response) {
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "Current password and a new password (min 8 characters) are required",
+    });
+  }
+  try {
+    const data = await changeOwnPassword(
+      req.user!.id,
+      parsed.data.currentPassword,
+      parsed.data.newPassword,
+    );
+    return res.json(data);
+  } catch (err) {
+    if (err instanceof Error && err.message === "BAD_PASSWORD") {
+      return res.status(400).json({ error: "Current password is incorrect" });
     }
     return res.status(404).json({ error: "User not found" });
   }

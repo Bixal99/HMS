@@ -20,6 +20,7 @@ const staffSeed: Array<{
   employeeCode: string;
   designation: string;
   specialization?: string;
+  departmentName?: string;
 }> = [
   {
     email: "admin@medicore.local",
@@ -35,6 +36,34 @@ const staffSeed: Array<{
     employeeCode: "EMP-DOC-001",
     designation: "Consultant Physician",
     specialization: "Internal Medicine",
+    departmentName: "General Medicine",
+  },
+  {
+    email: "cardio@medicore.local",
+    role: Role.DOCTOR,
+    name: "Dr. Ahmed Khan",
+    employeeCode: "EMP-DOC-002",
+    designation: "Cardiologist",
+    specialization: "Cardiology",
+    departmentName: "Cardiology",
+  },
+  {
+    email: "ortho@medicore.local",
+    role: Role.DOCTOR,
+    name: "Dr. Hassan Raza",
+    employeeCode: "EMP-DOC-003",
+    designation: "Orthopedic Surgeon",
+    specialization: "Orthopedics",
+    departmentName: "Orthopedics",
+  },
+  {
+    email: "pulmo@medicore.local",
+    role: Role.DOCTOR,
+    name: "Dr. Nadia Hassan",
+    employeeCode: "EMP-DOC-004",
+    designation: "Pulmonologist",
+    specialization: "Pulmonology",
+    departmentName: "Pulmonology",
   },
   {
     email: "nurse@medicore.local",
@@ -67,7 +96,7 @@ const staffSeed: Array<{
   {
     email: "billing@medicore.local",
     role: Role.BILLING_OFFICER,
-    name: "Imran Malik",
+    name: "Sana Iqbal",
     employeeCode: "EMP-BILL-001",
     designation: "Billing Officer",
   },
@@ -94,6 +123,103 @@ async function main() {
     },
   });
 
+  const clinicalDepartments = [
+    { name: "Cardiology", description: "Heart and cardiovascular care" },
+    { name: "Pulmonology", description: "Respiratory and lung care" },
+    { name: "Gastroenterology", description: "Digestive system care" },
+    { name: "Dermatology", description: "Skin care" },
+    { name: "Orthopedics", description: "Bones, joints, and injury care" },
+    { name: "Mental Health", description: "Behavioral and mental health care" },
+    {
+      name: "Obstetrics & Gynecology",
+      description: "Women's health and maternity care",
+    },
+    { name: "Surgery", description: "Surgical services" },
+    { name: "Critical Care", description: "Intensive and critical care" },
+  ] as const;
+
+  const deptByName: Record<string, string> = {
+    "General Medicine": department.id,
+    Laboratory: laboratoryDept.id,
+  };
+
+  for (const d of clinicalDepartments) {
+    const row = await prisma.department.upsert({
+      where: { name: d.name },
+      update: { description: d.description },
+      create: { name: d.name, description: d.description },
+    });
+    deptByName[d.name] = row.id;
+  }
+
+  const symptomCategories = [
+    {
+      name: "General / Other",
+      description: "General concerns or unsure which specialty fits",
+      department: "General Medicine",
+    },
+    {
+      name: "Chest Pain / Cardiac Concerns",
+      description: "Chest discomfort, palpitations, or heart-related worries",
+      department: "Cardiology",
+    },
+    {
+      name: "Fever / Infection / Respiratory",
+      description: "Fever, cough, breathing, or infection concerns",
+      department: "Pulmonology",
+    },
+    {
+      name: "Digestive Issues",
+      description: "Stomach, bowel, or digestive concerns",
+      department: "Gastroenterology",
+    },
+    {
+      name: "Skin Issues",
+      description: "Rashes, lesions, or other skin concerns",
+      department: "Dermatology",
+    },
+    {
+      name: "Orthopedic / Injury",
+      description: "Joint pain, sprains, fractures, or musculoskeletal injury",
+      department: "Orthopedics",
+    },
+    {
+      name: "Mental Health",
+      description: "Mood, stress, anxiety, or mental wellness concerns",
+      department: "Mental Health",
+    },
+    {
+      name: "Women's Health",
+      description: "Gynecologic or pregnancy-related concerns",
+      department: "Obstetrics & Gynecology",
+    },
+  ] as const;
+
+  for (const cat of symptomCategories) {
+    const suggestedDepartmentId = deptByName[cat.department];
+    if (!suggestedDepartmentId) continue;
+    const existing = await prisma.symptomCategory.findFirst({
+      where: { name: cat.name },
+    });
+    if (existing) {
+      await prisma.symptomCategory.update({
+        where: { id: existing.id },
+        data: {
+          description: cat.description,
+          suggestedDepartmentId,
+        },
+      });
+    } else {
+      await prisma.symptomCategory.create({
+        data: {
+          name: cat.name,
+          description: cat.description,
+          suggestedDepartmentId,
+        },
+      });
+    }
+  }
+
   for (const staff of staffSeed) {
     const user = await prisma.user.upsert({
       where: { email: staff.email },
@@ -113,7 +239,11 @@ async function main() {
     });
 
     const staffDeptId =
-      staff.role === Role.LAB_TECHNICIAN ? laboratoryDept.id : department.id;
+      staff.role === Role.LAB_TECHNICIAN
+        ? laboratoryDept.id
+        : staff.departmentName && deptByName[staff.departmentName]
+          ? deptByName[staff.departmentName]!
+          : department.id;
 
     await prisma.staff.upsert({
       where: { userId: user.id },
@@ -696,10 +826,13 @@ async function main() {
     "hospital.brandColorHex": "#1a5cd6",
     "hospital.contactEmail": null,
     "billing.consultationFeeCents": 5000,
+    "billing.defaultSurgeryFeeCents": 150000,
+    "billing.nursingDailyCents": 0,
     "billing.taxRatePercent": 0,
     "billing.currency": "USD",
     "features.patientSelfRegistration": true,
     "features.appointmentWaitlist": true,
+    "appointment.pendingHoldHours": 4,
   };
 
   for (const [key, value] of Object.entries(settingDefaults)) {
@@ -710,8 +843,26 @@ async function main() {
     });
   }
 
+  const radiologyModalities = [
+    { name: "X-Ray", code: "XR", priceCents: 8000 },
+    { name: "Ultrasound", code: "US", priceCents: 12000 },
+    { name: "CT", code: "CT", priceCents: 25000 },
+    { name: "MRI", code: "MRI", priceCents: 45000 },
+  ] as const;
+
+  for (const modality of radiologyModalities) {
+    await prisma.radiologyModality.upsert({
+      where: { code: modality.code },
+      update: {
+        name: modality.name,
+        priceCents: modality.priceCents,
+      },
+      create: modality,
+    });
+  }
+
   console.log(
-    "Seed complete: demo users, medicines, pharmacy stock, lab catalog, wards/beds, inventory/equipment, settings",
+    "Seed complete: demo users, medicines, pharmacy stock, lab catalog, wards/beds, inventory/equipment, settings, symptom categories, radiology modalities",
   );
 }
 

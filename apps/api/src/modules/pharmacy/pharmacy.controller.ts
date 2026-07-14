@@ -1,18 +1,24 @@
 import type { Request, Response } from "express";
 import { parseISO } from "date-fns";
+import { emitPharmacyStockUnavailable } from "../../lib/socket";
 import {
   createPurchaseOrder,
+  countPendingPharmacyQueue,
   dispensePrescriptionItem,
+  findStockAlternatives,
   getPharmacyAlerts,
   getPharmacyQueue,
   getPrescriptionDetail,
+  getPrescriptionNotifyContext,
   listBatchesForMedicine,
   listMedicinesWithStock,
+  listPatientPrescriptions,
   listPurchaseOrders,
   listSuppliers,
   receivePurchaseOrder,
   updatePharmacyStage,
 } from "./pharmacy.service";
+import { resolvePatientId } from "../appointments/appointments.service";
 import {
   createPoSchema,
   dispenseSchema,
@@ -33,6 +39,11 @@ export async function listMedicinesHandler(_req: Request, res: Response) {
 export async function queueHandler(_req: Request, res: Response) {
   const data = await getPharmacyQueue();
   return res.json({ data });
+}
+
+export async function queueCountHandler(_req: Request, res: Response) {
+  const count = await countPendingPharmacyQueue();
+  return res.json({ count });
 }
 
 export async function stageHandler(req: Request, res: Response) {
@@ -74,8 +85,27 @@ export async function dispenseHandler(req: Request, res: Response) {
     }
     if (err.message.startsWith("INSUFFICIENT_STOCK:")) {
       const short = err.message.split(":")[1];
+      const ctx = await getPrescriptionNotifyContext(
+        paramId(req, "prescriptionItemId"),
+      );
+      let alternatives: string[] = [];
+      if (ctx) {
+        alternatives = await findStockAlternatives({
+          medicineId: ctx.medicineId,
+          form: ctx.form,
+          genericName: ctx.genericName,
+        });
+        emitPharmacyStockUnavailable({
+          prescriptionId: ctx.prescriptionId,
+          doctorId: ctx.doctorId,
+          medicineHint: ctx.medicineHint,
+          patientName: ctx.patientName,
+          alternatives,
+        });
+      }
       return res.status(409).json({
         error: `Insufficient stock: ${short} unit(s) short across all batches`,
+        alternatives,
       });
     }
     throw err;
@@ -161,4 +191,11 @@ export async function prescriptionDetailHandler(req: Request, res: Response) {
   );
 
   return res.json({ ...rx, items });
+}
+
+export async function minePrescriptionsHandler(req: Request, res: Response) {
+  const patientId = await resolvePatientId(req.user!.id);
+  if (!patientId) return res.status(403).json({ error: "No patient profile" });
+  const data = await listPatientPrescriptions(patientId);
+  return res.json({ data });
 }

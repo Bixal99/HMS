@@ -2,12 +2,19 @@ import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate";
 import { authorize } from "../../middleware/authorize";
 import {
+  activeAdmissionsHandler,
   admitHandler,
   checklistHandler,
+  createNoteHandler,
   dischargeHandler,
   getAdmissionHandler,
+  listMedicationsHandler,
+  listNotesHandler,
+  marSuggestionsHandler,
   occupancyHandler,
   patchBedStatusHandler,
+  patchCarePlanHandler,
+  recordMedicationHandler,
   transferHandler,
   wardBedsHandler,
 } from "./wards.controller";
@@ -36,12 +43,58 @@ wardsRouter.patch(
   patchBedStatusHandler,
 );
 
-admissionsRouter.post("/", authorize("DOCTOR", "NURSE", "ADMIN"), admitHandler);
+admissionsRouter.post(
+  "/",
+  authorize("DOCTOR", "NURSE", "ADMIN", "RECEPTIONIST"),
+  admitHandler,
+);
+
+admissionsRouter.get(
+  "/active",
+  authorize("NURSE", "ADMIN", "DOCTOR"),
+  activeAdmissionsHandler,
+);
 
 admissionsRouter.get(
   "/:id",
   authorize("DOCTOR", "NURSE", "ADMIN", "BILLING_OFFICER"),
   getAdmissionHandler,
+);
+
+admissionsRouter.patch(
+  "/:id/care-plan",
+  authorize("NURSE", "ADMIN"),
+  patchCarePlanHandler,
+);
+
+admissionsRouter.get(
+  "/:id/notes",
+  authorize("NURSE", "ADMIN"),
+  listNotesHandler,
+);
+
+admissionsRouter.post(
+  "/:id/notes",
+  authorize("NURSE", "ADMIN"),
+  createNoteHandler,
+);
+
+admissionsRouter.get(
+  "/:id/medications",
+  authorize("NURSE", "ADMIN"),
+  listMedicationsHandler,
+);
+
+admissionsRouter.post(
+  "/:id/medications",
+  authorize("NURSE", "ADMIN"),
+  recordMedicationHandler,
+);
+
+admissionsRouter.get(
+  "/:id/mar-suggestions",
+  authorize("NURSE", "ADMIN"),
+  marSuggestionsHandler,
 );
 
 admissionsRouter.get(

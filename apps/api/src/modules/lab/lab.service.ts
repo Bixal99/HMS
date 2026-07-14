@@ -1,5 +1,9 @@
 import { prisma } from "../../lib/prisma";
-import { getIO } from "../../lib/socket";
+import {
+  emitLabOrderCreated,
+  emitLabResultReady,
+  getIO,
+} from "../../lib/socket";
 
 export async function listCatalog() {
   return prisma.labTestCatalog.findMany({ orderBy: [{ category: "asc" }, { name: "asc" }] });
@@ -17,7 +21,7 @@ export async function createLabOrder(input: {
     throw new Error("FORBIDDEN");
   }
 
-  return prisma.labOrder.create({
+  const order = await prisma.labOrder.create({
     data: {
       encounterId: encounter.id,
       patientId: encounter.patientId,
@@ -30,6 +34,20 @@ export async function createLabOrder(input: {
       items: { include: { test: true } },
       patient: { select: { id: true, firstName: true, lastName: true, mrn: true } },
     },
+  });
+
+  emitLabOrderCreated({
+    labOrderId: order.id,
+    patientName: `${order.patient.firstName} ${order.patient.lastName}`,
+    testCount: order.items.length,
+  });
+
+  return order;
+}
+
+export async function countPendingLabOrders() {
+  return prisma.labOrder.count({
+    where: { status: { in: ["ORDERED", "COLLECTED", "IN_PROGRESS"] } },
   });
 }
 
@@ -97,7 +115,15 @@ export async function submitLabResult(
 ) {
   const item = await prisma.labOrderItem.findUniqueOrThrow({
     where: { id: labOrderItemId },
-    include: { test: true, labOrder: true, result: true },
+    include: {
+      test: true,
+      labOrder: {
+        include: {
+          patient: { select: { firstName: true, lastName: true } },
+        },
+      },
+      result: true,
+    },
   });
 
   if (item.result) throw new Error("ALREADY_RESULTED");
@@ -141,14 +167,29 @@ export async function submitLabResult(
     return created;
   });
 
+  const patientName = `${item.labOrder.patient.firstName} ${item.labOrder.patient.lastName}`;
+
   if (isCritical) {
-    getIO().to(`doctor:${item.labOrder.orderedBy}`).emit("lab:critical_result", {
+    try {
+      getIO().to(`doctor:${item.labOrder.orderedBy}`).emit("lab:critical_result", {
+        labOrderItemId,
+        labOrderId: item.labOrderId,
+        testName: item.test.name,
+        patientId: item.labOrder.patientId,
+        value: input.resultValueNumeric ?? input.resultValueText ?? "See file",
+        isCritical: true,
+      });
+    } catch {
+      // socket unavailable
+    }
+  } else {
+    emitLabResultReady({
       labOrderItemId,
       labOrderId: item.labOrderId,
       testName: item.test.name,
+      patientName,
+      orderedBy: item.labOrder.orderedBy,
       patientId: item.labOrder.patientId,
-      value: input.resultValueNumeric ?? input.resultValueText ?? "See file",
-      isCritical: true,
     });
   }
 

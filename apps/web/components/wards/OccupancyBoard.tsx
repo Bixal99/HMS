@@ -115,7 +115,7 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
   const tileRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const prevStatus = useRef<Map<string, BedStatus>>(new Map());
 
-  const canAdmit = ["DOCTOR", "NURSE", "ADMIN"].includes(role);
+  const canAdmit = ["DOCTOR", "NURSE", "ADMIN", "RECEPTIONIST"].includes(role);
   const canDischarge = ["DOCTOR", "ADMIN"].includes(role);
   const canTransfer = ["NURSE", "ADMIN"].includes(role);
 

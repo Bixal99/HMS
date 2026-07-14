@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, API_BASE, ApiError } from "@/lib/api";
 import { KanbanBoard } from "@/components/shared/KanbanBoard";
 import { PageEnter } from "@/components/shared/PageEnter";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,7 @@ export function FulfillmentBoard() {
   const queryClient = useQueryClient();
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [overrideBatch, setOverrideBatch] = useState<Record<string, string>>({});
+  const [stockAlternatives, setStockAlternatives] = useState<string[]>([]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["pharmacy-queue"],
@@ -103,19 +104,34 @@ export function FulfillmentBoard() {
   });
 
   const dispenseMutation = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       itemId,
       overrideBatchId,
     }: {
       itemId: string;
       overrideBatchId?: string;
-    }) =>
-      apiFetch(`/api/pharmacy/dispense/${itemId}`, {
+    }) => {
+      const res = await fetch(`${API_BASE}/api/pharmacy/dispense/${itemId}`, {
         method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(overrideBatchId ? { overrideBatchId } : {}),
         }),
-      }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        alternatives?: string[];
+      };
+      if (!res.ok) {
+        if (res.status === 409 && body.alternatives?.length) {
+          setStockAlternatives(body.alternatives);
+        }
+        throw new ApiError(res.status, body.error ?? res.statusText);
+      }
+      setStockAlternatives([]);
+      return body;
+    },
     onSuccess: () => {
       toast.success("Dispensed");
       void queryClient.invalidateQueries({ queryKey: ["pharmacy-queue"] });
@@ -156,22 +172,24 @@ export function FulfillmentBoard() {
                   e.stopPropagation();
                   open();
                 }}
-                onPointerDown={(e) => e.stopPropagation()}
               >
                 <p className="font-medium text-foreground">
                   {rx.patient.firstName} {rx.patient.lastName}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">{rx.patient.mrn}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   {rx.items.length} item{rx.items.length === 1 ? "" : "s"} ·{" "}
                   {formatDistanceToNow(new Date(rx.createdAt), { addSuffix: true })}
                 </p>
-                <p className="mt-1 text-[11px] text-muted-foreground">{rx.patient.mrn}</p>
               </button>
             )}
             renderOverlay={(rx) => (
-              <div className="rounded-md border border-primary/40 bg-card p-3 shadow-md">
+              <div className="w-72 rotate-1 rounded-lg border border-primary/40 bg-card p-3 shadow-xl">
                 <p className="font-medium">
                   {rx.patient.firstName} {rx.patient.lastName}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {rx.items.length} item{rx.items.length === 1 ? "" : "s"}
                 </p>
               </div>
             )}
@@ -179,7 +197,15 @@ export function FulfillmentBoard() {
         )}
       </div>
 
-      <Drawer open={Boolean(drawerId)} onOpenChange={(o) => !o && setDrawerId(null)}>
+      <Drawer
+        open={Boolean(drawerId)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDrawerId(null);
+            setStockAlternatives([]);
+          }
+        }}
+      >
         <DrawerContent className="max-h-[90vh] w-[min(28rem,92vw)]">
           <DrawerHeader>
             <DrawerTitle>
@@ -189,6 +215,16 @@ export function FulfillmentBoard() {
             </DrawerTitle>
           </DrawerHeader>
           <div className="space-y-4 overflow-y-auto px-4 pb-8">
+            {stockAlternatives.length > 0 ? (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium text-foreground">Suggested in-stock alternatives</p>
+                <ul className="mt-1 list-inside list-disc text-muted-foreground">
+                  {stockAlternatives.map((a) => (
+                    <li key={a}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {!detail ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : (

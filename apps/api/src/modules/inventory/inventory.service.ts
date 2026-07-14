@@ -138,6 +138,7 @@ export async function getInventoryAlerts(opts: {
   const equipmentDue = await prisma.equipment.findMany({
     where: {
       ...deptFilter,
+      status: { not: "RETIRED" },
       OR: [
         { nextServiceDueAt: { lte: now } },
         { status: "MAINTENANCE" },

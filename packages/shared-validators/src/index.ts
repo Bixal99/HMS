@@ -32,6 +32,7 @@ export const mrnSchema = z.string().min(1).max(32);
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  rememberMe: z.boolean().optional().default(false),
 });
 
 export const registerSchema = z.object({

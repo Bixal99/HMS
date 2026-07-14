@@ -1,5 +1,3 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # Dependencies
 node_modules
 .pnp
@@ -27,6 +25,12 @@ out/
 build
 dist
 
+# Prisma
+apps/api/src/generated/
+
+# Local patient document uploads
+apps/api/uploads/
+uploads/
 
 # Debug
 npm-debug.log*
@@ -36,3 +40,4 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+*.tsbuildinfo

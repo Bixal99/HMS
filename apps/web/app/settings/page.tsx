@@ -1,17 +1,13 @@
-import { redirect } from "next/navigation";
-import { AuthenticatedShell, requireSessionUser } from "@/components/layout/AuthenticatedShell";
-import { SettingsTabs } from "@/components/settings/SettingsTabs";
-import { PageEnter } from "@/components/shared/PageEnter";
+import { AuthenticatedShell } from "@/components/layout/AuthenticatedShell";
+import { SettingsPageClient } from "@/components/settings/SettingsPageClient";
+import { requireSessionUser } from "@/lib/session-user";
 
 export default async function SettingsPage() {
   const user = await requireSessionUser();
-  if (user.role !== "ADMIN") redirect("/");
 
   return (
     <AuthenticatedShell>
-      <PageEnter>
-        <SettingsTabs />
-      </PageEnter>
+      <SettingsPageClient role={user.role} />
     </AuthenticatedShell>
   );
 }

@@ -8,6 +8,8 @@ import {
   getPatientContext,
   listEncountersForPatient,
   listRevisions,
+  requestAdmit,
+  requestFollowUp,
   searchMedicines,
   startEncounter,
   updateEncounterNotes,
@@ -15,6 +17,8 @@ import {
 import {
   diagnosisSchema,
   prescriptionSchema,
+  requestAdmitSchema,
+  requestFollowUpSchema,
   startEncounterSchema,
   updateNotesSchema,
   vitalsSchema,
@@ -148,6 +152,44 @@ export async function finalizeHandler(req: Request, res: Response) {
       if (err.message === "ALREADY_FINALIZED") {
         return res.status(400).json({ error: "Encounter already finalized" });
       }
+    }
+    throw err;
+  }
+}
+
+export async function requestAdmitHandler(req: Request, res: Response) {
+  const parsed = requestAdmitSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body" });
+  }
+  const staffId = await resolveStaffId(req.user!.id);
+  if (!staffId) return res.status(403).json({ error: "No staff profile" });
+
+  try {
+    const result = await requestAdmit(paramId(req), staffId, parsed.data.note);
+    return res.json(result);
+  } catch (err) {
+    if (err instanceof Error && err.message === "FORBIDDEN") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    throw err;
+  }
+}
+
+export async function requestFollowUpHandler(req: Request, res: Response) {
+  const parsed = requestFollowUpSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body" });
+  }
+  const staffId = await resolveStaffId(req.user!.id);
+  if (!staffId) return res.status(403).json({ error: "No staff profile" });
+
+  try {
+    const result = await requestFollowUp(paramId(req), staffId, parsed.data);
+    return res.json(result);
+  } catch (err) {
+    if (err instanceof Error && err.message === "FORBIDDEN") {
+      return res.status(403).json({ error: "Forbidden" });
     }
     throw err;
   }

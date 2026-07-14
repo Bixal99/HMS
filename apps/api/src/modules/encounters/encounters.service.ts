@@ -1,4 +1,47 @@
 import { prisma } from "../../lib/prisma";
+import {
+  emitAdmitRequested,
+  emitDoctorReady,
+  emitEncounterFinalized,
+  emitFollowUpRequested,
+  emitPharmacyRxCreated,
+  emitVitalsAbnormal,
+} from "../../lib/socket";
+
+const ABNORMAL_VITAL_FLAGS = {
+  systolicHigh: 180,
+  systolicLow: 90,
+  diastolicHigh: 120,
+  pulseHigh: 140,
+  pulseLow: 40,
+  tempHigh: 39,
+  tempLow: 35,
+} as const;
+
+function detectAbnormalVitals(data: {
+  bpSystolic?: number | null;
+  bpDiastolic?: number | null;
+  temperatureC?: number | null;
+  pulseBpm?: number | null;
+}): string[] {
+  const flags: string[] = [];
+  if (data.bpSystolic != null) {
+    if (data.bpSystolic >= ABNORMAL_VITAL_FLAGS.systolicHigh) flags.push("High systolic BP");
+    if (data.bpSystolic <= ABNORMAL_VITAL_FLAGS.systolicLow) flags.push("Low systolic BP");
+  }
+  if (data.bpDiastolic != null && data.bpDiastolic >= ABNORMAL_VITAL_FLAGS.diastolicHigh) {
+    flags.push("High diastolic BP");
+  }
+  if (data.pulseBpm != null) {
+    if (data.pulseBpm >= ABNORMAL_VITAL_FLAGS.pulseHigh) flags.push("Tachycardia");
+    if (data.pulseBpm <= ABNORMAL_VITAL_FLAGS.pulseLow) flags.push("Bradycardia");
+  }
+  if (data.temperatureC != null) {
+    if (data.temperatureC >= ABNORMAL_VITAL_FLAGS.tempHigh) flags.push("High fever");
+    if (data.temperatureC <= ABNORMAL_VITAL_FLAGS.tempLow) flags.push("Hypothermia");
+  }
+  return flags;
+}
 
 const encounterDetailInclude = {
   patient: {
@@ -15,7 +58,29 @@ const encounterDetailInclude = {
     },
   },
   appointment: {
-    select: { id: true, scheduledAt: true, status: true, reasonForVisit: true },
+    select: {
+      id: true,
+      scheduledAt: true,
+      status: true,
+      reasonForVisit: true,
+      intake: {
+        select: {
+          id: true,
+          chiefComplaintText: true,
+          durationValue: true,
+          durationUnit: true,
+          severity: true,
+          redFlagsSelected: true,
+          isUrgent: true,
+          symptomCategory: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
   },
   diagnoses: true,
   vitals: { orderBy: { recordedAt: "desc" as const } },
@@ -36,7 +101,7 @@ export async function startEncounter(appointmentId: string, doctorId: string) {
   if (appointment.doctorId !== doctorId) {
     throw new Error("FORBIDDEN");
   }
-  if (!["CHECKED_IN", "IN_PROGRESS"].includes(appointment.status)) {
+  if (!["CHECKED_IN", "WAITING", "IN_CONSULTATION"].includes(appointment.status)) {
     throw new Error("INVALID_STATUS");
   }
 
@@ -45,8 +110,8 @@ export async function startEncounter(appointmentId: string, doctorId: string) {
   });
   if (existing) return existing;
 
-  return prisma.$transaction(async (tx) => {
-    const encounter = await tx.encounter.create({
+  const encounter = await prisma.$transaction(async (tx) => {
+    const created = await tx.encounter.create({
       data: {
         patientId: appointment.patientId,
         doctorId,
@@ -57,10 +122,18 @@ export async function startEncounter(appointmentId: string, doctorId: string) {
     });
     await tx.appointment.update({
       where: { id: appointmentId },
-      data: { status: "IN_PROGRESS", inProgressAt: new Date() },
+      data: { status: "IN_CONSULTATION", inProgressAt: new Date() },
     });
-    return encounter;
+    return created;
   });
+
+  emitDoctorReady({
+    appointmentId,
+    patientId: appointment.patientId,
+    doctorId,
+  });
+
+  return encounter;
 }
 
 export async function getEncounter(id: string) {
@@ -135,7 +208,58 @@ export async function finalizeEncounter(encounterId: string, doctorId: string) {
     if (existing.doctorId !== doctorId) throw new Error("FORBIDDEN");
     throw new Error("ALREADY_FINALIZED");
   }
-  return getEncounter(encounterId);
+  const encounter = await getEncounter(encounterId);
+  if (encounter?.patient) {
+    emitEncounterFinalized({
+      encounterId: encounter.id,
+      patientId: encounter.patientId,
+      patientName: `${encounter.patient.firstName} ${encounter.patient.lastName}`,
+    });
+  }
+  return encounter;
+}
+
+export async function requestAdmit(
+  encounterId: string,
+  doctorId: string,
+  note?: string | null,
+) {
+  const encounter = await prisma.encounter.findUniqueOrThrow({
+    where: { id: encounterId },
+    include: { patient: { select: { firstName: true, lastName: true } } },
+  });
+  if (encounter.doctorId !== doctorId) throw new Error("FORBIDDEN");
+
+  emitAdmitRequested({
+    encounterId: encounter.id,
+    patientId: encounter.patientId,
+    patientName: `${encounter.patient.firstName} ${encounter.patient.lastName}`,
+    note: note ?? null,
+  });
+
+  return { ok: true as const };
+}
+
+export async function requestFollowUp(
+  encounterId: string,
+  doctorId: string,
+  input: { preferredDate?: string | null; note?: string | null },
+) {
+  const encounter = await prisma.encounter.findUniqueOrThrow({
+    where: { id: encounterId },
+    include: { patient: { select: { firstName: true, lastName: true } } },
+  });
+  if (encounter.doctorId !== doctorId) throw new Error("FORBIDDEN");
+
+  emitFollowUpRequested({
+    encounterId: encounter.id,
+    patientId: encounter.patientId,
+    patientName: `${encounter.patient.firstName} ${encounter.patient.lastName}`,
+    preferredDate: input.preferredDate ?? null,
+    note: input.note ?? null,
+  });
+
+  return { ok: true as const };
 }
 
 export async function addVitals(
@@ -150,7 +274,14 @@ export async function addVitals(
     heightCm?: number | null;
   },
 ) {
-  return prisma.vitals.create({
+  const encounter = await prisma.encounter.findUniqueOrThrow({
+    where: { id: encounterId },
+    include: {
+      patient: { select: { firstName: true, lastName: true } },
+    },
+  });
+
+  const vitals = await prisma.vitals.create({
     data: {
       encounterId,
       recordedBy,
@@ -162,6 +293,18 @@ export async function addVitals(
       heightCm: data.heightCm ?? null,
     },
   });
+
+  const flags = detectAbnormalVitals(data);
+  if (flags.length > 0) {
+    emitVitalsAbnormal({
+      encounterId,
+      doctorId: encounter.doctorId,
+      patientName: `${encounter.patient.firstName} ${encounter.patient.lastName}`,
+      flags,
+    });
+  }
+
+  return vitals;
 }
 
 export async function addDiagnosis(
@@ -190,7 +333,7 @@ export async function createPrescription(input: {
     notes?: string | null;
   }>;
 }) {
-  return prisma.prescription.create({
+  const rx = await prisma.prescription.create({
     data: {
       encounterId: input.encounterId,
       patientId: input.patientId,
@@ -207,8 +350,20 @@ export async function createPrescription(input: {
         })),
       },
     },
-    include: { items: { include: { medicine: true } } },
+    include: {
+      items: { include: { medicine: true } },
+      patient: { select: { firstName: true, lastName: true } },
+    },
   });
+
+  emitPharmacyRxCreated({
+    prescriptionId: rx.id,
+    patientName: `${rx.patient.firstName} ${rx.patient.lastName}`,
+    itemCount: rx.items.length,
+    patientId: rx.patientId,
+  });
+
+  return rx;
 }
 
 export async function listRevisions(encounterId: string) {

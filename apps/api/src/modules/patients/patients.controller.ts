@@ -120,3 +120,19 @@ export async function uploadDocumentHandler(req: Request, res: Response) {
 
   return res.status(201).json(document);
 }
+
+export async function mePatientProfileHandler(req: Request, res: Response) {
+  const { resolvePatientId } = await import("../appointments/appointments.service");
+  const patientId = await resolvePatientId(req.user!.id);
+  if (!patientId) return res.status(404).json({ error: "No patient profile" });
+  const patient = await getPatientById(patientId, req.user!.role);
+  if (!patient) return res.status(404).json({ error: "Not found" });
+  return res.json({
+    id: patient.id,
+    mrn: patient.mrn,
+    bloodGroup: patient.bloodGroup,
+    allergies: patient.allergies ?? [],
+    firstName: patient.firstName,
+    lastName: patient.lastName,
+  });
+}

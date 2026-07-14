@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" fill="none" role="img" aria-labelledby="registerTitle">
+  <title id="registerTitle">Patient completing hospital registration</title>
+  <rect width="640" height="480" rx="24" fill="url(#regBg)"/>
+  <defs>
+    <linearGradient id="regBg" x1="640" y1="0" x2="0" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071C33"/>
+      <stop offset="1" stop-color="#0E4CCF"/>
+    </linearGradient>
+  </defs>
+  <circle cx="120" cy="90" r="70" fill="#12C7D8" fill-opacity="0.2"/>
+  <circle cx="540" cy="390" r="90" fill="#FFFFFF" fill-opacity="0.07"/>
+  <rect x="150" y="96" width="340" height="288" rx="28" fill="#FFFFFF" fill-opacity="0.94"/>
+  <circle cx="320" cy="170" r="36" fill="#1463FF" fill-opacity="0.15"/>
+  <circle cx="320" cy="158" r="16" fill="#1463FF"/>
+  <path d="M292 204c8-18 48-18 56 0" stroke="#1463FF" stroke-width="8" stroke-linecap="round"/>
+  <rect x="210" y="236" width="220" height="14" rx="7" fill="#D6E2F2"/>
+  <rect x="210" y="266" width="180" height="14" rx="7" fill="#E4ECF7"/>
+  <rect x="210" y="296" width="220" height="14" rx="7" fill="#D6E2F2"/>
+  <rect x="210" y="336" width="140" height="28" rx="14" fill="#1463FF"/>
+  <path d="M236 350h40" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+</svg>

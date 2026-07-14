@@ -41,7 +41,9 @@ export type Subjects =
   | "AuditLog"
   | "HospitalSetting"
   | "Department"
-  | "User";
+  | "User"
+  | "SymptomCategory"
+  | "PatientIntake";
 
 export type AppAbility = MongoAbility<[Actions, Subjects]>;
 
@@ -52,6 +54,15 @@ export const BILLING_PATIENT_FIELDS = [
   "mrn",
   "insuranceProvider",
   "insurancePolicyNo",
+] as const;
+
+export const RECEPTIONIST_INTAKE_FIELDS = [
+  "id",
+  "patientId",
+  "appointmentId",
+  "isUrgent",
+  "symptomCategoryId",
+  "createdAt",
 ] as const;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,7 +81,12 @@ export function defineAbilitiesFor(user: {
     case "ADMIN":
       can("manage", "all");
       can("read", "AuditLog");
+      // Admin never performs clinical charting
       cannot(["create", "update", "delete"], "Encounter");
+      cannot(["create", "update", "delete"], "Diagnosis");
+      cannot(["create", "update", "delete"], "Prescription");
+      cannot(["create", "update", "delete"], "Vitals");
+      cannot(["create", "update", "delete"], "LabOrder");
       break;
 
     case "RECEPTIONIST":
@@ -82,6 +98,18 @@ export function defineAbilitiesFor(user: {
       can(["create", "read", "update"], "Appointment");
       can("read", "Invoice");
       can("create", "Payment");
+      can("read", "Ward");
+      can("read", "Bed");
+      can("read", "Admission");
+      can("read", "PatientIntake", [
+        "id",
+        "patientId",
+        "appointmentId",
+        "isUrgent",
+        "symptomCategoryId",
+        "createdAt",
+      ]);
+      can("read", "SymptomCategory");
       break;
 
     case "DOCTOR":
@@ -109,6 +137,8 @@ export function defineAbilitiesFor(user: {
       can("update", "Admission", ["dischargedAt", "dischargeSummary"]);
       can("read", "ClinicalReport");
       can("create", "ReportSnapshot");
+      can("read", "PatientIntake");
+      can("read", "SymptomCategory");
       break;
 
     case "NURSE":
@@ -132,6 +162,8 @@ export function defineAbilitiesFor(user: {
         can("read", "InventoryItem", { departmentId: user.departmentId } as Cond);
         can("create", "InventoryTransaction");
       }
+      can("read", "PatientIntake");
+      can("read", "SymptomCategory");
       break;
 
     case "PHARMACIST":
@@ -173,6 +205,7 @@ export function defineAbilitiesFor(user: {
 
     case "PATIENT":
       can(["read", "update"], "Patient");
+      can("read", "SymptomCategory");
       if (user.patientId) {
         can("read", "Invoice", { patientId: user.patientId } as Cond);
         can("read", "Payment", { patientId: user.patientId } as Cond);
@@ -180,13 +213,24 @@ export function defineAbilitiesFor(user: {
         can(["create", "read"], "Appointment", { patientId: user.patientId } as Cond);
         can("update", "Appointment", {
           patientId: user.patientId,
-          status: "SCHEDULED",
+          status: "PENDING",
+        } as Cond);
+        can("update", "Appointment", {
+          patientId: user.patientId,
+          status: "CONFIRMED",
         } as Cond);
         can("read", "Encounter", { patientId: user.patientId } as Cond);
         can("read", "Vitals", { patientId: user.patientId } as Cond);
         can("read", "Diagnosis", { patientId: user.patientId } as Cond);
         can("read", "Prescription", { patientId: user.patientId } as Cond);
         can("read", "LabResult");
+        can(["create", "read"], "PatientIntake", {
+          patientId: user.patientId,
+        } as Cond);
+        can("update", "PatientIntake", {
+          patientId: user.patientId,
+          lockedAt: null,
+        } as Cond);
       }
       break;
 
@@ -202,6 +246,16 @@ export function pickBillingPatientFields<T extends Record<string, unknown>>(pati
   for (const key of BILLING_PATIENT_FIELDS) {
     if (key in patient) {
       result[key] = patient[key];
+    }
+  }
+  return result;
+}
+
+export function pickReceptionistIntakeFields<T extends Record<string, unknown>>(intake: T) {
+  const result: Record<string, unknown> = {};
+  for (const key of RECEPTIONIST_INTAKE_FIELDS) {
+    if (key in intake) {
+      result[key] = intake[key];
     }
   }
   return result;

@@ -9,7 +9,7 @@ import {
   isLoginRateLimited,
   recordFailedLogin,
 } from "@/lib/login-rate-limit";
-import { createDatabaseSession, setSessionCookie } from "@/lib/session";
+import { createDatabaseSession, setSessionCookie, SESSION_MAX_AGE_MS, SESSION_SHORT_AGE_MS } from "@/lib/session";
 import { homeForRole } from "@/lib/role-routes";
 
 async function clientIp(): Promise<string> {
@@ -64,8 +64,10 @@ export async function loginAction(input: unknown): Promise<LoginResult> {
 
     clearLoginAttempts(ip, email);
 
-    const sessionToken = await createDatabaseSession(user.id);
-    await setSessionCookie(sessionToken);
+    const rememberMe = Boolean(parsed.data.rememberMe);
+    const maxAgeMs = rememberMe ? SESSION_MAX_AGE_MS : SESSION_SHORT_AGE_MS;
+    const sessionToken = await createDatabaseSession(user.id, maxAgeMs);
+    await setSessionCookie(sessionToken, { rememberMe, maxAgeMs });
 
     return {
       ok: true,

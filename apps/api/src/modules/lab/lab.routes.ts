@@ -6,6 +6,7 @@ import {
   collectHandler,
   createOrderHandler,
   orderDetailHandler,
+  queueCountHandler,
   queueHandler,
   stageHandler,
   submitResultHandler,
@@ -24,6 +25,12 @@ router.get(
 );
 
 router.post("/orders", authorize("DOCTOR"), createOrderHandler);
+
+router.get(
+  "/orders/queue/count",
+  authorize("LAB_TECHNICIAN", "ADMIN"),
+  queueCountHandler,
+);
 
 router.get(
   "/orders/queue",

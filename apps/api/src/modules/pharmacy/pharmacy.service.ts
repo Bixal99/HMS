@@ -1,5 +1,6 @@
 import type { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
+import { emitPharmacyDispensed, emitPharmacyRxReady, emitPharmacyStockUnavailable } from "../../lib/socket";
 import { addDays, startOfDay } from "date-fns";
 
 type Tx = Prisma.TransactionClient;
@@ -64,6 +65,15 @@ export async function getPharmacyQueue() {
   return grouped;
 }
 
+export async function countPendingPharmacyQueue() {
+  return prisma.prescription.count({
+    where: {
+      status: { not: "CANCELLED" },
+      pharmacyStage: { in: ["PENDING_REVIEW", "PREPARING"] },
+    },
+  });
+}
+
 export async function updatePharmacyStage(
   prescriptionId: string,
   pharmacyStage:
@@ -72,9 +82,112 @@ export async function updatePharmacyStage(
     | "READY_FOR_PICKUP"
     | "COMPLETED",
 ) {
-  return prisma.prescription.update({
+  const updated = await prisma.prescription.update({
     where: { id: prescriptionId },
     data: { pharmacyStage },
+    include: {
+      patient: { select: { id: true, firstName: true, lastName: true } },
+    },
+  });
+
+  if (pharmacyStage === "READY_FOR_PICKUP") {
+    emitPharmacyRxReady({
+      prescriptionId: updated.id,
+      patientId: updated.patientId,
+      patientName: `${updated.patient.firstName} ${updated.patient.lastName}`,
+    });
+  }
+
+  return updated;
+}
+
+/** Look up Rx context for stock-unavailable notify (called after failed dispense). */
+export async function getPrescriptionNotifyContext(prescriptionItemId: string) {
+  const item = await prisma.prescriptionItem.findUnique({
+    where: { id: prescriptionItemId },
+    include: {
+      medicine: {
+        select: { id: true, name: true, form: true, genericName: true },
+      },
+      prescription: {
+        include: {
+          patient: { select: { firstName: true, lastName: true } },
+        },
+      },
+    },
+  });
+  if (!item) return null;
+  return {
+    prescriptionId: item.prescriptionId,
+    doctorId: item.prescription.doctorId,
+    medicineId: item.medicine.id,
+    medicineHint: item.medicine.name,
+    form: item.medicine.form,
+    genericName: item.medicine.genericName,
+    patientName: `${item.prescription.patient.firstName} ${item.prescription.patient.lastName}`,
+  };
+}
+
+export async function findStockAlternatives(input: {
+  medicineId: string;
+  form: string;
+  genericName?: string | null;
+  limit?: number;
+}) {
+  const limit = input.limit ?? 5;
+  const medicines = await prisma.medicine.findMany({
+    where: {
+      id: { not: input.medicineId },
+      OR: [
+        { form: { equals: input.form, mode: "insensitive" } },
+        ...(input.genericName
+          ? [
+              {
+                genericName: {
+                  contains: input.genericName,
+                  mode: "insensitive" as const,
+                },
+              },
+            ]
+          : []),
+      ],
+    },
+    include: {
+      batches: {
+        where: { quantityInStock: { gt: 0 } },
+        select: { quantityInStock: true },
+      },
+    },
+    take: 40,
+  });
+
+  return medicines
+    .map((m) => ({
+      id: m.id,
+      label: `${m.name} ${m.strength}`.trim(),
+      totalStock: m.batches.reduce((s, b) => s + b.quantityInStock, 0),
+    }))
+    .filter((m) => m.totalStock > 0)
+    .slice(0, limit)
+    .map((m) => m.label);
+}
+
+export async function listPatientPrescriptions(patientId: string) {
+  return prisma.prescription.findMany({
+    where: { patientId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      items: {
+        include: {
+          medicine: {
+            select: { name: true, strength: true, form: true },
+          },
+        },
+      },
+      doctor: {
+        select: { designation: true, user: { select: { name: true } } },
+      },
+    },
   });
 }
 
@@ -156,7 +269,22 @@ export async function dispensePrescriptionItem(
     }
 
     await maybeMarkPrescriptionFulfilled(tx, item.prescriptionId);
-    return { dispensedQuantity: requested };
+    return { dispensedQuantity: requested, prescriptionId: item.prescriptionId };
+  }).then(async (result) => {
+    const rx = await prisma.prescription.findUnique({
+      where: { id: result.prescriptionId },
+      include: {
+        patient: { select: { id: true, firstName: true, lastName: true } },
+      },
+    });
+    if (rx) {
+      emitPharmacyDispensed({
+        prescriptionId: rx.id,
+        patientId: rx.patientId,
+        patientName: `${rx.patient.firstName} ${rx.patient.lastName}`,
+      });
+    }
+    return { dispensedQuantity: result.dispensedQuantity };
   });
 }
 

@@ -1,6 +1,10 @@
 import { Prisma } from "../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
-import { getIO } from "../../lib/socket";
+import {
+  emitPatientAdmitted,
+  emitPatientDischarged,
+  getIO,
+} from "../../lib/socket";
 
 export class BedUnavailableError extends Error {
   constructor(message: string) {
@@ -113,7 +117,7 @@ export async function admitPatient(
           patient: {
             select: { id: true, firstName: true, lastName: true, mrn: true },
           },
-          bed: true,
+          bed: { include: { ward: { select: { name: true } } } },
         },
       });
       await tx.bed.update({ where: { id: bedId }, data: { status: "OCCUPIED" } });
@@ -126,6 +130,14 @@ export async function admitPatient(
       status: "OCCUPIED",
       admissionId: admission.id,
       patientId: admission.patientId,
+    });
+
+    emitPatientAdmitted({
+      admissionId: admission.id,
+      patientId: admission.patientId,
+      patientName: `${admission.patient.firstName} ${admission.patient.lastName}`,
+      wardName: admission.bed.ward.name,
+      bedLabel: admission.bed.bedNumber,
     });
 
     return admission;
@@ -219,6 +231,12 @@ export async function dischargePatient(
     status: "AVAILABLE",
     admissionId: result.id,
     patientId: result.patientId,
+  });
+
+  emitPatientDischarged({
+    admissionId: result.id,
+    patientId: result.patientId,
+    patientName: `${result.patient.firstName} ${result.patient.lastName}`,
   });
 
   return result;

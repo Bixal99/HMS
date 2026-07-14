@@ -1,4 +1,5 @@
 import { Prisma } from "../../generated/prisma/client";
+import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma";
 import {
   DEFAULT_SETTINGS,
@@ -177,4 +178,43 @@ export async function changeUserRole(
     data: { role: role as never },
     select: { id: true, email: true, role: true, isActive: true, name: true },
   });
+}
+
+export async function getUserMe(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true, role: true },
+  });
+  if (!user) throw new Error("NOT_FOUND");
+  return user;
+}
+
+export async function updateUserMe(userId: string, name: string) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { name },
+    select: { id: true, email: true, name: true, role: true },
+  });
+}
+
+export async function changeOwnPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, passwordHash: true },
+  });
+  if (!user) throw new Error("NOT_FOUND");
+
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) throw new Error("BAD_PASSWORD");
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
+  return { ok: true };
 }

@@ -9,7 +9,9 @@ import { apiFetch, API_BASE, ApiError } from "@/lib/api";
 import { computeBmi, bmiCategory } from "@/lib/bmi";
 import { fadeSavedHint } from "@/lib/motion";
 import { SevereAllergyBanner } from "@/components/patients/SevereAllergyBanner";
+import { RedFlagLabels } from "@/components/intake/RedFlagScreen";
 import { OrderLabForm } from "@/components/lab/OrderLabForm";
+import { OrderRadiologyForm } from "@/components/radiology/OrderRadiologyForm";
 import { PageEnter } from "@/components/shared/PageEnter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +74,22 @@ type EncounterDetail = {
       medicine: { name: string; strength: string; form: string };
     }>;
   }>;
+  appointment?: {
+    id: string;
+    scheduledAt: string;
+    status: string;
+    reasonForVisit: string | null;
+    intake?: {
+      id: string;
+      chiefComplaintText: string;
+      durationValue: number;
+      durationUnit: string;
+      severity: string;
+      redFlagsSelected: string[];
+      isUrgent: boolean;
+      symptomCategory: { id: string; name: string };
+    } | null;
+  } | null;
   context: {
     allergies: Array<{
       id: string;
@@ -92,7 +110,15 @@ type Medicine = {
   strength: string;
 };
 
-type Panel = "vitals" | "diagnosis" | "prescription" | "lab" | null;
+type Panel =
+  | "vitals"
+  | "diagnosis"
+  | "prescription"
+  | "lab"
+  | "radiology"
+  | "surgery"
+  | "followup"
+  | null;
 
 const SOAP_KEYS: Array<keyof SoapFields> = [
   "subjective",
@@ -286,11 +312,6 @@ export function ConsultationWorkspace({
               {encounter.patient.firstName} {encounter.patient.lastName}
             </h1>
             <p className="text-sm text-muted-foreground">{encounter.patient.mrn}</p>
-            {encounter.chiefComplaint ? (
-              <p className="mt-2 text-sm text-foreground">
-                CC: {encounter.chiefComplaint}
-              </p>
-            ) : null}
           </div>
 
           <SevereAllergyBanner
@@ -298,6 +319,43 @@ export function ConsultationWorkspace({
             acknowledged={allergyAck}
             onAcknowledge={() => setAllergyAck(true)}
           />
+
+          {encounter.appointment?.intake ? (
+            <section className="space-y-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Reason for visit
+              </h2>
+              {Array.isArray(encounter.appointment.intake.redFlagsSelected) &&
+              encounter.appointment.intake.redFlagsSelected.length > 0 ? (
+                <RedFlagLabels
+                  keys={encounter.appointment.intake.redFlagsSelected}
+                />
+              ) : null}
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">Category: </span>
+                {encounter.appointment.intake.symptomCategory.name}
+              </p>
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">Duration: </span>
+                {encounter.appointment.intake.durationValue}{" "}
+                {encounter.appointment.intake.durationUnit}
+              </p>
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">Severity: </span>
+                {encounter.appointment.intake.severity.toLowerCase()}
+              </p>
+              <p className="text-sm text-foreground">
+                {encounter.appointment.intake.chiefComplaintText}
+              </p>
+            </section>
+          ) : encounter.chiefComplaint ? (
+            <section className="space-y-1">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Reason for visit
+              </h2>
+              <p className="text-sm text-foreground">{encounter.chiefComplaint}</p>
+            </section>
+          ) : null}
 
           <section className="space-y-1">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -481,14 +539,59 @@ export function ConsultationWorkspace({
             </>
           ) : null}
           {canClinical ? (
-            <Button
-              type="button"
-              className="w-full justify-start"
-              variant={panel === "lab" ? "default" : "outline"}
-              onClick={() => setPanel(panel === "lab" ? null : "lab")}
-            >
-              Order lab
-            </Button>
+            <>
+              <Button
+                type="button"
+                className="w-full justify-start"
+                variant={panel === "lab" ? "default" : "outline"}
+                onClick={() => setPanel(panel === "lab" ? null : "lab")}
+              >
+                Order lab
+              </Button>
+              <Button
+                type="button"
+                className="w-full justify-start"
+                variant={panel === "radiology" ? "default" : "outline"}
+                onClick={() => setPanel(panel === "radiology" ? null : "radiology")}
+              >
+                Order imaging
+              </Button>
+              <Button
+                type="button"
+                className="w-full justify-start"
+                variant={panel === "surgery" ? "default" : "outline"}
+                onClick={() => setPanel(panel === "surgery" ? null : "surgery")}
+              >
+                Recommend surgery
+              </Button>
+              <Button
+                type="button"
+                className="w-full justify-start"
+                variant="outline"
+                onClick={() => {
+                  void apiFetch(`/api/encounters/${encounterId}/request-admit`, {
+                    method: "POST",
+                    body: JSON.stringify({}),
+                  })
+                    .then(() => toast.success("Reception notified to admit patient"))
+                    .catch((err) =>
+                      toast.error(
+                        err instanceof ApiError ? err.message : "Could not notify reception",
+                      ),
+                    );
+                }}
+              >
+                Request admission
+              </Button>
+              <Button
+                type="button"
+                className="w-full justify-start"
+                variant={panel === "followup" ? "default" : "outline"}
+                onClick={() => setPanel(panel === "followup" ? null : "followup")}
+              >
+                Request follow-up
+              </Button>
+            </>
           ) : null}
           {canClinical && encounter.status === "IN_PROGRESS" ? (
             <Button
@@ -534,6 +637,27 @@ export function ConsultationWorkspace({
               onDone={() => {
                 setPanel(null);
               }}
+            />
+          ) : null}
+          {panel === "radiology" && canClinical ? (
+            <OrderRadiologyForm
+              encounterId={encounterId}
+              onDone={() => {
+                setPanel(null);
+              }}
+            />
+          ) : null}
+          {panel === "surgery" && canClinical ? (
+            <RecommendSurgeryForm
+              encounterId={encounterId}
+              patientId={encounter.patientId}
+              onDone={() => setPanel(null)}
+            />
+          ) : null}
+          {panel === "followup" && canClinical ? (
+            <RequestFollowUpForm
+              encounterId={encounterId}
+              onDone={() => setPanel(null)}
             />
           ) : null}
         </aside>
@@ -912,6 +1036,135 @@ function PrescriptionForm({
       <Input id="rx-notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
       <Button type="submit" className="w-full" disabled={mutation.isPending}>
         Issue prescription
+      </Button>
+    </form>
+  );
+}
+
+function RecommendSurgeryForm({
+  encounterId,
+  patientId,
+  onDone,
+}: {
+  encounterId: string;
+  patientId: string;
+  onDone: () => void;
+}) {
+  const [procedureName, setProcedureName] = useState("");
+  const [urgency, setUrgency] = useState<"ELECTIVE" | "URGENT" | "EMERGENCY">(
+    "ELECTIVE",
+  );
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/surgery/requests", {
+        method: "POST",
+        body: JSON.stringify({
+          encounterId,
+          patientId,
+          procedureName,
+          urgency,
+        }),
+      }),
+    onSuccess: () => {
+      toast.success("Surgery requested");
+      onDone();
+    },
+    onError: (err) =>
+      toast.error(err instanceof ApiError ? err.message : "Request failed"),
+  });
+
+  return (
+    <form
+      className="space-y-2 rounded-md border border-border bg-card p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!procedureName.trim()) {
+          toast.error("Enter a procedure name");
+          return;
+        }
+        mutation.mutate();
+      }}
+    >
+      <Label htmlFor="surg-proc">Procedure</Label>
+      <Input
+        id="surg-proc"
+        value={procedureName}
+        onChange={(e) => setProcedureName(e.target.value)}
+        placeholder="e.g. Laparoscopic appendectomy"
+        required
+      />
+      <Label htmlFor="surg-urgency">Urgency</Label>
+      <select
+        id="surg-urgency"
+        className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+        value={urgency}
+        onChange={(e) =>
+          setUrgency(e.target.value as "ELECTIVE" | "URGENT" | "EMERGENCY")
+        }
+      >
+        <option value="ELECTIVE">Elective</option>
+        <option value="URGENT">Urgent</option>
+        <option value="EMERGENCY">Emergency</option>
+      </select>
+      <Button type="submit" className="w-full" disabled={mutation.isPending}>
+        Submit surgery request
+      </Button>
+    </form>
+  );
+}
+
+function RequestFollowUpForm({
+  encounterId,
+  onDone,
+}: {
+  encounterId: string;
+  onDone: () => void;
+}) {
+  const [preferredDate, setPreferredDate] = useState("");
+  const [note, setNote] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/api/encounters/${encounterId}/request-follow-up`, {
+        method: "POST",
+        body: JSON.stringify({
+          preferredDate: preferredDate || null,
+          note: note || null,
+        }),
+      }),
+    onSuccess: () => {
+      toast.success("Reception and patient notified for follow-up");
+      onDone();
+    },
+    onError: (err) =>
+      toast.error(err instanceof ApiError ? err.message : "Request failed"),
+  });
+
+  return (
+    <form
+      className="space-y-2 rounded-md border border-border bg-card p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        mutation.mutate();
+      }}
+    >
+      <Label htmlFor="fu-date">Preferred date (optional)</Label>
+      <Input
+        id="fu-date"
+        type="date"
+        value={preferredDate}
+        onChange={(e) => setPreferredDate(e.target.value)}
+      />
+      <Label htmlFor="fu-note">Note (optional)</Label>
+      <Input
+        id="fu-note"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="e.g. Review labs in 2 weeks"
+      />
+      <Button type="submit" className="w-full" disabled={mutation.isPending}>
+        Notify reception
       </Button>
     </form>
   );

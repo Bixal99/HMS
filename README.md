@@ -1,172 +1,134 @@
 # MediCore
 
-Hospital Management System monorepo — Next.js 16 (web) + Express/Prisma 7 (api) + local PostgreSQL.
+Hospital management for real clinical workflows — patient portal, appointments, medical records, pharmacy, lab & imaging, wards, billing, and role-based ops dashboards — in one local monorepo, built entirely on a free/open-source stack.
 
-## Quick start
+
+| Layer    | Stack                                                                                                                               |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Web**  | Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/ui · TanStack Query · GSAP + Anime.js · Chart.js · Socket.IO client |
+| **API**  | Node.js · Express · Prisma 7 · Socket.IO · PostgreSQL                                                                               |
+| **Auth** | Auth.js v5 (database sessions) + CASL abilities, shared via `packages/shared-auth`                                                  |
+
+
+**Core flow:** Patient self-registers (or Reception registers a walk-in) → guided intake or direct booking → doctor's live queue → consultation & clinical documentation → pharmacy/lab fulfillment → billing — with real-time updates pushed to every screen that needs them, no polling.
+
+---
+
+## Features
+
+
+| Area               | What you get                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Patient Portal** | Dashboard, symptom-guided or direct appointment booking, appointment timeline, read-only access to records/invoices/lab results                                     |
+| **Reception**      | Patient registration (self-service or walk-in, no forced portal login for walk-ins), booking, check-in, live appointment queue                                      |
+| **Clinical**       | Consultations with versioned SOAP notes, vitals, diagnoses, prescriptions, lab & imaging ordering                                                                   |
+| **Pharmacy & Lab** | FEFO batch dispensing, shared kanban fulfillment board (pharmacy + lab/imaging), automatic critical-result alerting to the ordering doctor                          |
+| **Wards**          | Real-time bed occupancy board, admission/transfer/discharge with a guided, checklist-driven discharge flow                                                          |
+| **Billing**        | Invoices auto-aggregated from consultations, dispenses, lab charges, and bed-days; payments; insurance claim tracking                                               |
+| **Admin & Ops**    | Staff onboarding (role-conditional forms), departments & specialties, inventory & equipment, reporting dashboards, fully automatic audit logging, hospital settings |
+| **Realtime**       | Socket.IO-driven live updates — doctor queue, ward occupancy, critical lab alerts — reflected instantly across connected sessions                                   |
+
+
+---
+
+## Prerequisites
+
+- Node.js ≥ 20 and npm ≥ 10
+- PostgreSQL running locally (default port 5432), managed via **pgAdmin 4**
+- A [Resend](https://resend.com/) API key (free tier) if you want outgoing email — staff invite emails and the contact form — to actually send
+
+## First-Time Setup
+
+MediCore ships with **no demo data**. The only account created automatically is a single bootstrap Admin, sourced from your own environment variables — every other account (doctors, nurses, receptionists, pharmacists, lab techs, billing officers, patients) is created through the app itself, by the role that's actually supposed to create it.
 
 ```bash
 npm install
+
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
-# Edit DATABASE_URL + AUTH_SECRET, then:
+# Fill in DATABASE_URL, AUTH_SECRET, INITIAL_ADMIN_EMAIL, INITIAL_ADMIN_PASSWORD,
+# RESEND_API_KEY, WEB_ORIGIN — keep DATABASE_URL identical in both files
+
 npm run db:migrate
-npm run db:seed
+npm run db:seed      # creates exactly one bootstrap Admin + default settings — nothing else
+
 npm run dev
+
 ```
 
-- Web: http://localhost:3000
-- API: http://localhost:4000
-- Health: `GET http://localhost:4000/health`
-- Auth probe: `GET http://localhost:4000/health/me` (requires Auth.js session cookie)
+Log in as the bootstrap Admin using the credentials from your `.env`. You'll be forced to set a new password immediately. From there, use the app itself to populate everything else with real data:
 
-Root scripts:
+1. **Settings → Departments & Specialties** — define your hospital's actual structure
+2. **Staff Management** — onboard doctors, nurses, receptionists, pharmacists, lab technicians, and billing officers (each gets an emailed invite to set their own password)
+3. **Pharmacy → Medicine Catalog**, **Lab → Test Catalog**, **Wards → Beds**, **Inventory** — populate as needed
+4. Patients register themselves through the public portal, or Reception registers walk-ins directly
 
-| Script | Description |
-|--------|-------------|
-| `npm run dev` | Start web + api via Turborepo |
-| `npm run build` | Build all workspaces |
-| `npm run lint` | Lint all workspaces |
-| `npm run db:migrate` | Run Prisma migrations (`apps/api`) |
-| `npm run db:seed` | Seed 8 demo users |
-| `npm run db:studio` | Open Prisma Studio |
 
-## Authentication (Task 02)
+| App | URL                   |
+| --- | --------------------- |
+| Web | http://localhost:3000 |
+| API | http://localhost:4000 |
 
-Self-hosted **Auth.js v5** with **database sessions** (Prisma `Session` table). Email/password login uses Next.js Server Actions that create a `Session` row and set the `authjs.session-token` cookie — not the Credentials provider (incompatible with database sessions in Auth.js v5). Logout deletes the `Session` row.
 
-- Patients self-register at `/register`
-- Staff/admin accounts are seed-only (not public registration)
-- Login rate limit: 5 failed attempts / 15 minutes per IP+email (in-memory, Next.js side)
-- Express resolves the same cookie via `@shared/auth` `validateSessionToken`
+Environment templates live in `apps/api/.env.example` and `apps/web/.env.example`. Copy them to `.env` (gitignored) and fill in your own values — never commit real secrets, and never let the app boot with a hardcoded fallback for `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD`.
 
-### Demo credentials
+---
 
-Password for all seeded users: `Demo@1234`
+## Environment Variables
 
-| Role | Email | Post-login route |
-|------|-------|------------------|
-| ADMIN | admin@medicore.local | `/dashboard/admin` |
-| DOCTOR | doctor@medicore.local | `/dashboard/doctor` |
-| NURSE | nurse@medicore.local | `/dashboard/nurse` |
-| RECEPTIONIST | receptionist@medicore.local | `/dashboard/receptionist` |
-| PHARMACIST | pharmacist@medicore.local | `/dashboard/pharmacy` |
-| LAB_TECHNICIAN | lab@medicore.local | `/dashboard/lab` |
-| BILLING_OFFICER | billing@medicore.local | `/dashboard/billing` |
-| PATIENT | patient@medicore.local | `/portal` |
 
-## Patient management (Task 03)
+| Variable                                         | Where                  | Purpose                                                 |
+| ------------------------------------------------ | ---------------------- | ------------------------------------------------------- |
+| `DATABASE_URL`                                   | `apps/api`, `apps/web` | Local PostgreSQL connection string — must match in both |
+| `AUTH_SECRET`                                    | `apps/web`             | Auth.js session encryption key                          |
+| `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` | `apps/api`             | Bootstrap Admin credentials — required, no fallback     |
+| `RESEND_API_KEY`                                 | `apps/api`             | Outgoing email (staff invites, contact form)            |
+| `WEB_ORIGIN`                                     | `apps/api`             | CORS + Socket.IO allowed origin                         |
 
-- Staff: `/patients` list (debounced search), `/patients/new` 4-step registration, `/patients/[id]` profile
-- API: `/api/patients` CRUD + allergies + document upload (local disk under `apps/api/uploads/`)
-- MRN format: `MRN-YYYY-#####` (sequential per year)
-- Soft-delete only (`deletedAt`); Admin-only delete
-- Timeline appointments/encounters/invoices are placeholders until later tasks
 
-## Staff & UI polish (Task 04)
+---
 
-- App shell with GSAP nav pill, breadcrumbs, avatar menu, and mobile `vaul` drawer
-- Motion utilities: `apps/web/lib/motion.ts` + `apps/web/lib/microInteractions.ts`
-- Staff directory `/staff`, weekly availability `/staff/availability`, leave inbox `/staff/leave` (Admin)
-- Shared `<EmptyState />` for zero-result lists
+## Scripts
 
-## Local Database Setup (PostgreSQL + pgAdmin 4)
 
-**Primary path for this project:** native PostgreSQL on your machine, administered through **pgAdmin 4**. Do not use hosted/serverless Postgres (Neon/Supabase/etc.) for local development.
+| Command              | Purpose                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| `npm run dev`        | Start web + API together (Turborepo)                         |
+| `npm run build`      | Production build, all workspaces                             |
+| `npm run lint`       | Lint all workspaces                                          |
+| `npm run db:migrate` | Apply Prisma migrations                                      |
+| `npm run db:seed`    | Bootstrap Admin + default settings only — no demo data       |
+| `npm run db:studio`  | Open Prisma Studio                                           |
+| `npm run test`       | Unit + integration tests                                     |
+| `npm run test:e2e`   | Playwright end-to-end tests (requires `npm run dev` running) |
 
-### Prerequisites
 
-- PostgreSQL installed locally (default port `5432`)
-- pgAdmin 4 installed and connected to your local server
+---
 
-### 1. Create the database
-
-1. Open **pgAdmin 4** and connect to your local PostgreSQL server.
-2. In the left browser tree: expand **Servers** → your server → right-click **Databases**.
-3. Choose **Create** → **Database…**.
-4. On the **General** tab, set **Database** to `medicore_dev`.
-5. Click **Save**.
-
-### 2. Create the login role
-
-1. Under your server, right-click **Login/Group Roles**.
-2. Choose **Create** → **Login/Group Role…**.
-3. **General** tab: set **Name** to `medicore_user`.
-4. **Definition** tab: set a **Password** (you will put this in `.env`).
-5. **Privileges** tab: enable **Can login?** and grant rights needed for development (at minimum login; then grant DB privileges as below).
-6. Click **Save**.
-
-### 3. Grant privileges on `medicore_dev`
-
-1. Right-click database `medicore_dev` → **Properties** → **Security** (or use the Query Tool).
-2. Grant `medicore_user` full privileges on `medicore_dev` (CONNECT, CREATE, TEMPORARY as needed).
-3. Optionally run [`scripts/setup-medicore-db.sql`](scripts/setup-medicore-db.sql) in the Query Tool as a superuser to create/align role + DB in one pass (adjust the password in the script to match yours).
-
-### 4. Configure connection strings
-
-```bash
-cp apps/api/.env.example apps/api/.env
-cp apps/web/.env.example apps/web/.env
-```
-
-```env
-DATABASE_URL="postgresql://medicore_user:<password>@localhost:5432/medicore_dev?schema=public"
-PORT=4000
-WEB_ORIGIN="http://localhost:3000"
-AUTH_SECRET="<long-random-string>"
-AUTH_URL="http://localhost:3000"
-```
-
-### 5. Migrate, seed, and verify in pgAdmin
-
-```bash
-npm run db:migrate
-npm run db:seed
-```
-
-In pgAdmin 4: **medicore_dev** → **Schemas** → **public** → **Tables**. You should see foundation tables plus:
-
-- `Account`
-- `Session`
-- `VerificationToken`
-
-Open Prisma Studio:
-
-```bash
-npm run db:studio
-```
-
-## Optional: Docker Compose Postgres
-
-If you cannot install native PostgreSQL, an optional Compose file is provided. This is an **alternative**, not the primary workflow.
-
-```bash
-docker compose up -d
-```
-
-Compose publishes Postgres on host port **5433** (so it does not collide with a native instance on `5432`). Point `apps/api/.env` and `apps/web/.env` at:
-
-```env
-DATABASE_URL="postgresql://medicore_user:medicore_dev_password@localhost:5433/medicore_dev?schema=public"
-```
-
-Credentials match `POSTGRES_*` in [`docker-compose.yml`](docker-compose.yml).
-
-## Workspace layout
+## Workspace
 
 ```
 medicore/
 ├── apps/
-│   ├── web/          # Next.js 16 + Auth.js + blue theme
-│   └── api/          # Express + Prisma 7
+│   ├── web/                 # Next.js — patient portal, staff dashboards, public marketing site
+│   └── api/                 # Express + Prisma + Socket.IO
 ├── packages/
-│   ├── shared-types/
-│   ├── shared-validators/
-│   └── shared-auth/  # CASL stubs + session validation
-├── docker-compose.yml
+│   ├── shared-types/        # Shared TypeScript DTOs
+│   ├── shared-validators/   # Zod schemas used by both web and api
+│   └── shared-auth/         # Session validation + CASL abilities
+├── e2e/                     # Playwright tests
+├── .github/workflows/       # CI
 ├── turbo.json
 └── package.json
+
 ```
 
-## Design system
+---
 
-Blue theme tokens live in [`apps/web/app/globals.css`](apps/web/app/globals.css). Components must use Tailwind semantic classes (`bg-primary`, `text-muted-foreground`, etc.) — no hardcoded hex or `bg-blue-*` utilities.
+## Development Process
+
+MediCore was built as a sequence of scoped, self-contained tasks — foundation and theming, then auth/RBAC, then each clinical and operational module in dependency order, finishing with a production-readiness pass (real-data-only registration, animation/performance audit, bug sweep) rather than one large build. The full module-by-module architecture, database schema rationale, and UX decisions behind each screen are documented separately in `ARCHITECTURE.md`.
+
+## License
+
+Private / unpublished — for local MediCore development.

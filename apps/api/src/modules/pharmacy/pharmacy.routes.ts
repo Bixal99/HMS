@@ -8,7 +8,9 @@ import {
   dispenseHandler,
   listMedicinesHandler,
   listPoHandler,
+  minePrescriptionsHandler,
   prescriptionDetailHandler,
+  queueCountHandler,
   queueHandler,
   receivePoHandler,
   stageHandler,
@@ -25,6 +27,13 @@ router.get(
   listMedicinesHandler,
 );
 
+router.get(
+  "/prescriptions/mine",
+  authorize("PATIENT"),
+  minePrescriptionsHandler,
+);
+
+router.get("/queue/count", authorize("PHARMACIST", "ADMIN"), queueCountHandler);
 router.get("/queue", authorize("PHARMACIST", "ADMIN"), queueHandler);
 router.get(
   "/queue/:prescriptionId",

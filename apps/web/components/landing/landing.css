@@ -34,7 +34,7 @@
   overflow-x: clip;
   color: var(--landing-navy);
   background: var(--landing-porcelain);
-  font-family: var(--font-landing), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
   font-size: clamp(0.9375rem, 0.9rem + 0.16vw, 1.0625rem);
   font-synthesis: none;
   line-height: 1.7;
@@ -556,7 +556,6 @@ html.landing-cursor-pointer .landing-cursor__ring {
 /* Auth panel shared mesh */
 
 .auth-brand-panel {
-  position: relative;
   overflow: hidden;
   background:
     radial-gradient(ellipse 80% 60% at 20% 20%, hsl(199 89% 48% / 0.35), transparent 55%),
@@ -575,6 +574,24 @@ html.landing-cursor-pointer .landing-cursor__ring {
     linear-gradient(90deg, hsl(0 0% 100% / 0.12) 1px, transparent 1px);
   background-size: 40px 40px;
   mask-image: radial-gradient(ellipse 70% 60% at 40% 40%, black 20%, transparent 75%);
+}
+
+.auth-ecg path {
+  filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.35));
+}
+
+.auth-slide-shell {
+  background: hsl(var(--background));
+}
+
+.auth-brand-panel.auth-slide-overlay {
+  position: absolute;
+  will-change: transform;
+  box-shadow: 0 0 40px rgb(7 28 51 / 0.18);
+}
+
+.auth-slide-forms {
+  isolation: isolate;
 }
 
 /* ——— Marketing sections ——— */

@@ -38,3 +38,12 @@ export const prescriptionItemSchema = z.object({
 export const prescriptionSchema = z.object({
   items: z.array(prescriptionItemSchema).min(1),
 });
+
+export const requestAdmitSchema = z.object({
+  note: z.string().max(1000).optional().nullable(),
+});
+
+export const requestFollowUpSchema = z.object({
+  preferredDate: z.string().max(100).optional().nullable(),
+  note: z.string().max(1000).optional().nullable(),
+});

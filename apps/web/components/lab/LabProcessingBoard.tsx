@@ -223,22 +223,24 @@ export function LabProcessingBoard({ role }: { role: string }) {
                   e.stopPropagation();
                   open();
                 }}
-                onPointerDown={(e) => e.stopPropagation()}
               >
                 <p className="font-medium text-foreground">
                   {order.patient.firstName} {order.patient.lastName}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">{order.patient.mrn}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   {order.items.length} test{order.items.length === 1 ? "" : "s"} ·{" "}
                   {formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}
                 </p>
-                <p className="mt-1 text-[11px] text-muted-foreground">{order.patient.mrn}</p>
               </button>
             )}
             renderOverlay={(order) => (
-              <div className="rounded-md border border-primary/40 bg-card p-3 shadow-md">
+              <div className="w-72 rotate-1 rounded-lg border border-primary/40 bg-card p-3 shadow-xl">
                 <p className="font-medium">
                   {order.patient.firstName} {order.patient.lastName}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {order.items.length} test{order.items.length === 1 ? "" : "s"}
                 </p>
               </div>
             )}

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { resolveStaffId, resolvePatientId } from "../appointments/appointments.service";
 import {
   collectLabOrder,
+  countPendingLabOrders,
   createLabOrder,
   getLabOrderDetail,
   getLabQueue,
@@ -53,6 +54,11 @@ export async function createOrderHandler(req: Request, res: Response) {
 export async function queueHandler(_req: Request, res: Response) {
   const data = await getLabQueue();
   return res.json({ data });
+}
+
+export async function queueCountHandler(_req: Request, res: Response) {
+  const count = await countPendingLabOrders();
+  return res.json({ count });
 }
 
 export async function orderDetailHandler(req: Request, res: Response) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DayPicker } from "react-day-picker";
 import { format, startOfDay } from "date-fns";
@@ -43,17 +44,32 @@ type PatientHit = {
 
 type BookingFlowProps = {
   mode: "staff" | "patient";
+  departmentId?: string;
+  initialReason?: string;
+  intakeId?: string | null;
+  /** Direct-path red flags — create a minimal urgent intake at book time when set */
+  pendingRedFlags?: string[];
 };
 
-export function BookingFlow({ mode }: BookingFlowProps) {
+export function BookingFlow({
+  mode,
+  departmentId,
+  initialReason = "",
+  intakeId = null,
+  pendingRedFlags = [],
+}: BookingFlowProps) {
   const queryClient = useQueryClient();
   const [doctorId, setDoctorId] = useState("");
   const [patientId, setPatientId] = useState("");
   const [patientQuery, setPatientQuery] = useState("");
   const [selectedDay, setSelectedDay] = useState<Date>(startOfDay(new Date()));
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(initialReason);
   const [month, setMonth] = useState<Date>(startOfDay(new Date()));
   const [pendingSlot, setPendingSlot] = useState<string | null>(null);
+  const [successAppt, setSuccessAppt] = useState<{
+    id: string;
+    status: string;
+  } | null>(null);
 
   const calendarWrapRef = useRef<HTMLDivElement>(null);
   const calendarPaneRef = useRef<HTMLDivElement>(null);
@@ -65,6 +81,19 @@ export function BookingFlow({ mode }: BookingFlowProps) {
     queryKey: ["appointment-doctors"],
     queryFn: () => apiFetch<{ data: Doctor[] }>("/api/appointments/doctors"),
   });
+
+  const { data: categoriesData } = useQuery({
+    queryKey: ["symptom-categories"],
+    enabled: mode === "patient" && pendingRedFlags.length > 0 && !intakeId,
+    queryFn: () =>
+      apiFetch<{
+        data: Array<{ id: string; name: string }>;
+      }>("/api/symptom-categories"),
+  });
+
+  const generalCategoryId = categoriesData?.data.find(
+    (c) => c.name === "General / Other",
+  )?.id;
 
   const { data: mePatient } = useQuery({
     queryKey: ["me-patient"],
@@ -117,21 +146,58 @@ export function BookingFlow({ mode }: BookingFlowProps) {
   }, [dateKey, doctorId, slots.length]);
 
   const bookMutation = useMutation({
-    mutationFn: (scheduledAt: string) =>
-      apiFetch("/api/appointments", {
+    mutationFn: async (scheduledAt: string) => {
+      let linkedIntakeId = intakeId;
+      if (
+        !linkedIntakeId &&
+        mode === "patient" &&
+        pendingRedFlags.length > 0
+      ) {
+        if (!generalCategoryId) {
+          throw new Error("Could not resolve a default symptom category");
+        }
+        const complaint =
+          reason.trim().length >= 10
+            ? reason.trim()
+            : "Patient booked after reporting emergency warning symptoms";
+        const created = await apiFetch<{ data: { id: string } }>(
+          "/api/patient-intake",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              symptomCategoryId: generalCategoryId,
+              chiefComplaintText: complaint,
+              durationValue: 0,
+              durationUnit: "days",
+              severity: "SEVERE",
+              redFlagsSelected: pendingRedFlags,
+            }),
+          },
+        );
+        linkedIntakeId = created.data.id;
+      }
+
+      return apiFetch<{ id: string; status: string }>("/api/appointments", {
         method: "POST",
         body: JSON.stringify({
           patientId,
           doctorId,
           scheduledAt,
           reasonForVisit: reason || null,
+          intakeId: linkedIntakeId || null,
+          priority: pendingRedFlags.length > 0 ? "URGENT" : undefined,
         }),
-      }),
-    onSuccess: () => {
-      toast.success("Appointment booked");
+      });
+    },
+    onSuccess: (data) => {
       setPendingSlot(null);
       setReason("");
       void queryClient.invalidateQueries({ queryKey: ["slots", doctorId, dateKey] });
+      if (mode === "patient") {
+        setSuccessAppt({ id: data.id, status: data.status });
+        return;
+      }
+      toast.success("Appointment confirmed");
     },
     onError: (err, scheduledAt) => {
       const btn = slotBtnRefs.current.get(scheduledAt);
@@ -161,7 +227,9 @@ export function BookingFlow({ mode }: BookingFlowProps) {
       toast.error(err instanceof Error ? err.message : "Waitlist failed"),
   });
 
-  const doctors = doctorsData?.data ?? [];
+  const doctors = (doctorsData?.data ?? []).filter((d) =>
+    departmentId ? d.department.id === departmentId : true,
+  );
   const canBook = Boolean(doctorId && patientId);
 
   const selectedPatientLabel = useMemo(() => {
@@ -177,6 +245,41 @@ export function BookingFlow({ mode }: BookingFlowProps) {
     if (btn) optimisticRemove(btn);
     setPendingSlot(slot.start);
     bookMutation.mutate(slot.start);
+  }
+
+  if (successAppt) {
+    return (
+      <PageEnter>
+        <div className="mx-auto max-w-lg space-y-6 rounded-xl border border-border bg-card p-6">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Appointment request submitted
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Status: <span className="font-medium text-amber-800">Pending confirmation</span>
+          </p>
+          <p className="text-sm text-foreground">
+            Your appointment request has been received. Our staff will review and
+            confirm it shortly.
+          </p>
+          <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+            <p className="font-medium">What happens next?</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+              <li>Reception will review your request.</li>
+              <li>You&apos;ll receive a notification once it is confirmed.</li>
+              <li>Track status anytime in My Appointments.</li>
+            </ul>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link href={`/portal/appointments/${successAppt.id}`}>View request</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/portal/appointments">My appointments</Link>
+            </Button>
+          </div>
+        </div>
+      </PageEnter>
+    );
   }
 
   return (
@@ -209,6 +312,12 @@ export function BookingFlow({ mode }: BookingFlowProps) {
                   </option>
                 ))}
               </select>
+              {departmentId && doctors.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No doctors are assigned to this department yet. Go back and
+                  choose a different department if you need to book now.
+                </p>
+              ) : null}
             </div>
 
             {mode === "staff" ? (

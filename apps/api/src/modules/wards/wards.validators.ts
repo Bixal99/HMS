@@ -20,3 +20,20 @@ export const transferSchema = z.object({
 export const bedStatusSchema = z.object({
   status: z.enum(["AVAILABLE", "OCCUPIED", "MAINTENANCE"]),
 });
+
+export const carePlanSchema = z.object({
+  carePlan: z.string().max(10000),
+});
+
+export const nursingNoteSchema = z.object({
+  body: z.string().min(1).max(5000),
+  isUrgent: z.boolean().optional(),
+});
+
+export const medicationAdminSchema = z.object({
+  prescriptionItemId: z.string().uuid().optional().nullable(),
+  medicineName: z.string().min(1).max(200),
+  dose: z.string().min(1).max(100),
+  route: z.string().min(1).max(50),
+  notes: z.string().max(1000).optional().nullable(),
+});

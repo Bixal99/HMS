@@ -45,7 +45,9 @@ export async function getAvailableSlots(doctorId: string, date: Date): Promise<S
     where: {
       doctorId,
       scheduledAt: { gte: dayStart, lt: dayEnd },
-      status: { notIn: ["CANCELLED"] },
+      status: {
+        in: ["PENDING", "CONFIRMED", "CHECKED_IN", "WAITING", "IN_CONSULTATION"],
+      },
     },
     select: { scheduledAt: true },
   });

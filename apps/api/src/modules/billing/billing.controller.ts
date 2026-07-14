@@ -2,6 +2,8 @@ import type { Request, Response } from "express";
 import { generateInvoiceForPatient, NoBillableItemsError } from "./generateInvoice.service";
 import {
   addManualInvoiceItem,
+  countBillingAlerts,
+  countPatientUnpaidInvoices,
   createInsuranceClaim,
   getInvoiceById,
   listInvoices,
@@ -38,6 +40,19 @@ export async function generateHandler(req: Request, res: Response) {
     console.error(err);
     return res.status(500).json({ error: "Failed to generate invoice" });
   }
+}
+
+export async function billingAlertsCountHandler(_req: Request, res: Response) {
+  const count = await countBillingAlerts();
+  return res.json({ count });
+}
+
+export async function mineUnpaidCountHandler(req: Request, res: Response) {
+  if (!req.user?.patientId) {
+    return res.status(403).json({ error: "No patient profile" });
+  }
+  const count = await countPatientUnpaidInvoices(req.user.patientId);
+  return res.json({ count });
 }
 
 export async function listHandler(req: Request, res: Response) {

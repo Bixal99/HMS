@@ -48,6 +48,6 @@
     "@types/react": "^19.2.17",
     "prisma": "^7.0.0",
     "tsx": "^4.20.3",
-    "typescript": "5.9.2"
+    "typescript": "~6.0.3"
   }
 }

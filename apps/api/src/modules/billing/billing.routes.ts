@@ -4,11 +4,13 @@ import { authorize } from "../../middleware/authorize";
 import { logSensitiveView } from "../../middleware/logSensitiveView";
 import {
   addItemHandler,
+  billingAlertsCountHandler,
   createClaimHandler,
   generateHandler,
   getHandler,
   listHandler,
   listMineHandler,
+  mineUnpaidCountHandler,
   paymentHandler,
   pdfHandler,
   updateClaimHandler,
@@ -20,6 +22,17 @@ const router = Router();
 router.use(authenticate);
 
 router.get("/invoices/mine", authorize("PATIENT"), listMineHandler);
+router.get(
+  "/invoices/mine/unpaid-count",
+  authorize("PATIENT"),
+  mineUnpaidCountHandler,
+);
+
+router.get(
+  "/alerts/count",
+  authorize("BILLING_OFFICER", "ADMIN"),
+  billingAlertsCountHandler,
+);
 
 router.post(
   "/invoices/generate/:patientId",

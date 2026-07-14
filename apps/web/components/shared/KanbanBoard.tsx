@@ -18,6 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import { staggerCards } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,7 @@ type KanbanBoardProps<T extends KanbanCardModel> = {
   renderOverlay?: (item: T) => ReactNode;
   onCardOpen?: (item: T) => void;
   className?: string;
+  emptyColumnText?: string;
 };
 
 function SortableCardShell({
@@ -50,8 +52,14 @@ function SortableCardShell({
   columnId: string;
   children: ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id, data: { columnId } });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, data: { columnId } });
 
   return (
     <div
@@ -61,14 +69,21 @@ function SortableCardShell({
         transition,
       }}
       className={cn(
-        "cursor-grab rounded-md border border-border bg-card p-3 shadow-sm active:cursor-grabbing",
-        isDragging && "opacity-40",
+        "flex gap-1 rounded-lg border border-border bg-card shadow-sm transition-shadow",
+        isDragging && "opacity-40 shadow-none",
       )}
       data-kanban-card
-      {...attributes}
-      {...listeners}
     >
-      {children}
+      <button
+        type="button"
+        className="flex shrink-0 cursor-grab items-start px-1.5 py-3 text-muted-foreground hover:text-foreground active:cursor-grabbing"
+        aria-label="Drag card"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-4" />
+      </button>
+      <div className="min-w-0 flex-1 p-3 pl-0">{children}</div>
     </div>
   );
 }
@@ -78,11 +93,13 @@ function Column({
   items,
   renderCard,
   onCardOpen,
+  emptyColumnText,
 }: {
   column: KanbanColumnDef;
   items: KanbanCardModel[];
   renderCard: (item: KanbanCardModel, helpers: { open: () => void }) => ReactNode;
   onCardOpen?: (item: KanbanCardModel) => void;
+  emptyColumnText: string;
 }) {
   const ids = items.map((i) => i.id);
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
@@ -91,28 +108,47 @@ function Column({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex min-h-[28rem] flex-col rounded-lg border border-border bg-muted/20",
-        isOver && "ring-2 ring-primary/40",
+        "flex min-h-[28rem] flex-col rounded-xl border border-border bg-muted/25 transition-shadow",
+        isOver && "ring-2 ring-primary/50 bg-primary/5 shadow-md",
       )}
       data-column={column.id}
     >
-      <div className="border-b border-border px-3 py-2">
-        <h2 className="text-sm font-medium text-foreground">{column.label}</h2>
-        <p className="text-xs text-muted-foreground">{items.length}</p>
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
+        <h2 className="text-sm font-semibold text-foreground">{column.label}</h2>
+        <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-background px-2 py-0.5 text-xs font-semibold tabular-nums text-muted-foreground ring-1 ring-border">
+          {items.length}
+        </span>
       </div>
       <SortableContext items={ids} strategy={verticalListSortingStrategy} id={column.id}>
         <div className="flex flex-1 flex-col gap-2 p-2">
-          {items.map((item) => (
-            <SortableCardShell key={item.id} id={item.id} columnId={item.columnId}>
-              {renderCard(item, {
-                open: () => onCardOpen?.(item),
-              })}
-            </SortableCardShell>
-          ))}
+          {items.length === 0 ? (
+            <div
+              className={cn(
+                "flex flex-1 items-center justify-center rounded-lg border border-dashed border-border/80 px-3 py-8 text-center text-xs text-muted-foreground",
+                isOver && "border-primary/50 bg-primary/5 text-primary",
+              )}
+            >
+              {emptyColumnText}
+            </div>
+          ) : (
+            items.map((item) => (
+              <SortableCardShell key={item.id} id={item.id} columnId={item.columnId}>
+                {renderCard(item, {
+                  open: () => onCardOpen?.(item),
+                })}
+              </SortableCardShell>
+            ))
+          )}
         </div>
       </SortableContext>
     </div>
   );
+}
+
+function gridClassForColumns(count: number) {
+  if (count <= 2) return "md:grid-cols-2";
+  if (count === 3) return "md:grid-cols-3";
+  return "md:grid-cols-2 xl:grid-cols-4";
 }
 
 export function KanbanBoard<T extends KanbanCardModel>({
@@ -123,6 +159,7 @@ export function KanbanBoard<T extends KanbanCardModel>({
   renderOverlay,
   onCardOpen,
   className,
+  emptyColumnText = "Drop cards here",
 }: KanbanBoardProps<T>) {
   const boardRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -185,13 +222,18 @@ export function KanbanBoard<T extends KanbanCardModel>({
     >
       <div
         ref={boardRef}
-        className={cn("grid gap-3 md:grid-cols-2 xl:grid-cols-4", className)}
+        className={cn(
+          "grid gap-3",
+          gridClassForColumns(columns.length),
+          className,
+        )}
       >
         {columns.map((column) => (
           <Column
             key={column.id}
             column={column}
             items={(byColumn.get(column.id) ?? []) as KanbanCardModel[]}
+            emptyColumnText={emptyColumnText}
             renderCard={(item, helpers) =>
               renderCard(item as T, {
                 open: () => {
@@ -204,10 +246,10 @@ export function KanbanBoard<T extends KanbanCardModel>({
           />
         ))}
       </div>
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activeItem
           ? (renderOverlay?.(activeItem) ?? (
-              <div className="rounded-md border border-primary/40 bg-card p-3 shadow-md">
+              <div className="w-72 rotate-1 rounded-lg border border-primary/40 bg-card p-3 shadow-xl">
                 Moving…
               </div>
             ))

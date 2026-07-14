@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma";
+import { emitPaymentRecorded } from "../../lib/socket";
 import type {
   addInvoiceItemSchema,
   createClaimSchema,
@@ -103,7 +104,7 @@ export async function recordPayment(
   input: z.infer<typeof recordPaymentSchema>,
   recordedBy: string,
 ) {
-  return prisma.$transaction(async (tx) => {
+  const payment = await prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
       include: { payments: true },
@@ -116,7 +117,7 @@ export async function recordPayment(
       throw new Error("INVOICE_PAID");
     }
 
-    const payment = await tx.payment.create({
+    const created = await tx.payment.create({
       data: {
         invoiceId,
         method: input.method,
@@ -141,7 +142,38 @@ export async function recordPayment(
       },
     });
 
-    return payment;
+    return { payment: created, patientId: invoice.patientId };
+  });
+
+  emitPaymentRecorded({
+    invoiceId,
+    patientId: payment.patientId,
+    amountCents: payment.payment.amountCents,
+  });
+
+  return payment.payment;
+}
+
+export async function countBillingAlerts() {
+  const [unpaidInvoices, pendingDispenses, dischargedUninvoiced] =
+    await Promise.all([
+      prisma.invoice.count({
+        where: { status: { in: ["ISSUED", "PARTIALLY_PAID", "DRAFT"] } },
+      }),
+      prisma.dispense.count({ where: { invoicedAt: null } }),
+      prisma.admission.count({
+        where: { dischargedAt: { not: null }, invoicedAt: null },
+      }),
+    ]);
+  return unpaidInvoices + pendingDispenses + dischargedUninvoiced;
+}
+
+export async function countPatientUnpaidInvoices(patientId: string) {
+  return prisma.invoice.count({
+    where: {
+      patientId,
+      status: { in: ["ISSUED", "PARTIALLY_PAID", "DRAFT"] },
+    },
   });
 }
 

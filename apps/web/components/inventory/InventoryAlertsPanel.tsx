@@ -2,16 +2,25 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { AlertTriangle, Wrench } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import type { EquipmentRow, InventoryItem } from "@/lib/inventory";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 type AlertsResponse = {
   lowStock: InventoryItem[];
   equipmentDue: EquipmentRow[];
   count: number;
 };
+
+function stockSeverity(current: number, threshold: number) {
+  if (threshold <= 0) return "low";
+  const ratio = current / threshold;
+  if (ratio <= 0.5) return "critical";
+  return "low";
+}
 
 export function InventoryAlertsPanel() {
   const { data, isLoading } = useQuery({
@@ -27,6 +36,21 @@ export function InventoryAlertsPanel() {
   const due = data?.equipmentDue ?? [];
   const count = data?.count ?? 0;
 
+  if (count === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Inventory alerts</h1>
+          <p className="mt-1 text-sm text-muted-foreground">All clear</p>
+        </div>
+        <EmptyState
+          title="No alerts right now"
+          description="Stock levels and equipment service dates are in good standing."
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -38,26 +62,48 @@ export function InventoryAlertsPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <AlertTriangle className="size-4 text-destructive" />
             Low stock ({low.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
           {low.length === 0 ? (
-            <EmptyState title="No low-stock items" description="All supplies are above threshold." />
+            <EmptyState
+              title="No low-stock items"
+              description="All supplies are above threshold."
+            />
           ) : (
             <ul className="divide-y divide-border">
-              {low.map((i) => (
-                <li key={i.id} className="flex justify-between gap-2 py-2 text-sm">
-                  <span>
-                    {i.name}{" "}
-                    <span className="text-muted-foreground">· {i.department.name}</span>
-                  </span>
-                  <span className="font-medium text-destructive">
-                    {i.currentStock}/{i.reorderThreshold} {i.unit}
-                  </span>
-                </li>
-              ))}
+              {low.map((i) => {
+                const severity = stockSeverity(i.currentStock, i.reorderThreshold);
+                return (
+                  <li
+                    key={i.id}
+                    className="flex items-start justify-between gap-3 py-3 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium text-foreground">{i.name}</p>
+                      <p className="text-xs text-muted-foreground">{i.department.name}</p>
+                    </div>
+                    <div className="text-right">
+                      <span
+                        className={cn(
+                          "inline-flex rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums",
+                          severity === "critical"
+                            ? "bg-destructive/15 text-destructive"
+                            : "bg-amber-100 text-amber-900",
+                        )}
+                      >
+                        {i.currentStock}/{i.reorderThreshold} {i.unit}
+                      </span>
+                      <p className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {severity === "critical" ? "Critical" : "Below reorder"}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
@@ -65,7 +111,8 @@ export function InventoryAlertsPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Wrench className="size-4 text-amber-700" />
             Equipment due for service ({due.length})
           </CardTitle>
         </CardHeader>
@@ -78,19 +125,33 @@ export function InventoryAlertsPanel() {
           ) : (
             <ul className="divide-y divide-border">
               {due.map((e) => (
-                <li key={e.id} className="flex justify-between gap-2 py-2 text-sm">
-                  <span>
-                    {e.name}{" "}
-                    <span className="text-muted-foreground">
-                      · {e.serialNo} · {e.department.name}
+                <li
+                  key={e.id}
+                  className="flex items-start justify-between gap-3 py-3 text-sm"
+                >
+                  <div>
+                    <p className="font-medium text-foreground">{e.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {e.serialNo} · {e.department.name}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span
+                      className={cn(
+                        "inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase",
+                        e.status === "MAINTENANCE"
+                          ? "bg-amber-100 text-amber-900"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {e.status.replace(/_/g, " ")}
                     </span>
-                  </span>
-                  <span className="text-muted-foreground">
-                    {e.status}
-                    {e.nextServiceDueAt
-                      ? ` · due ${format(new Date(e.nextServiceDueAt), "MMM d, yyyy")}`
-                      : ""}
-                  </span>
+                    {e.nextServiceDueAt ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Due {format(new Date(e.nextServiceDueAt), "MMM d, yyyy")}
+                      </p>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>

@@ -1,16 +1,22 @@
-import { AuthenticatedShell, requireSessionUser } from "@/components/layout/AuthenticatedShell";
+import { AuthenticatedShell } from "@/components/layout/AuthenticatedShell";
+import { DirectBookingWithRedFlags } from "@/components/intake/DirectBookingWithRedFlags";
 import { BookingFlow } from "@/components/appointments/BookingFlow";
-import { redirect } from "next/navigation";
+import { requireAbility } from "@/lib/require-portal";
+import { requireSessionUser } from "@/lib/session-user";
 
 export default async function BookAppointmentPage() {
   const user = await requireSessionUser();
-  if (!["ADMIN", "RECEPTIONIST", "PATIENT"].includes(user.role)) {
-    redirect("/");
-  }
+  requireAbility(user, "create", "Appointment");
+
+  const isPatient = user.role === "PATIENT";
 
   return (
     <AuthenticatedShell>
-      <BookingFlow mode={user.role === "PATIENT" ? "patient" : "staff"} />
+      {isPatient ? (
+        <DirectBookingWithRedFlags mode="patient" />
+      ) : (
+        <BookingFlow mode="staff" />
+      )}
     </AuthenticatedShell>
   );
 }

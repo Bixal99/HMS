@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../../middleware/authenticate";
-import { authorize } from "../../middleware/authorize";
+import { authorizeAbility } from "../../middleware/authorizeAbility";
 import { logSensitiveView } from "../../middleware/logSensitiveView";
 import { requirePatientOwnerOrStaff, requirePatientWriteAccess } from "../../middleware/patientAccess";
 import {
@@ -9,6 +9,7 @@ import {
   getPatientHandler,
   getTimelineHandler,
   listPatientsHandler,
+  mePatientProfileHandler,
   softDeletePatientHandler,
   updatePatientHandler,
   uploadDocumentHandler,
@@ -20,13 +21,11 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get(
-  "/",
-  authorize("ADMIN", "RECEPTIONIST", "DOCTOR", "NURSE", "BILLING_OFFICER"),
-  listPatientsHandler,
-);
+router.get("/me", authorizeAbility("read", "Patient"), mePatientProfileHandler);
 
-router.post("/", authorize("ADMIN", "RECEPTIONIST"), createPatientHandler);
+router.get("/", authorizeAbility("read", "Patient"), listPatientsHandler);
+
+router.post("/", authorizeAbility("create", "Patient"), createPatientHandler);
 
 router.get(
   "/:id",
@@ -39,23 +38,23 @@ router.get("/:id/timeline", requirePatientOwnerOrStaff, getTimelineHandler);
 
 router.get(
   "/:id/lab-results",
-  authorize("ADMIN", "DOCTOR", "NURSE", "LAB_TECHNICIAN", "PATIENT"),
+  authorizeAbility("read", "LabResult"),
   patientLabResultsHandler,
 );
 
 router.patch("/:id", requirePatientWriteAccess, updatePatientHandler);
 
-router.delete("/:id", authorize("ADMIN"), softDeletePatientHandler);
+router.delete("/:id", authorizeAbility("delete", "Patient"), softDeletePatientHandler);
 
 router.post(
   "/:id/allergies",
-  authorize("ADMIN", "DOCTOR", "NURSE"),
+  authorizeAbility("create", "PatientAllergy"),
   addAllergyHandler,
 );
 
 router.post(
   "/:id/documents",
-  authorize("ADMIN", "RECEPTIONIST", "DOCTOR"),
+  authorizeAbility("create", "PatientDocument"),
   upload.single("file"),
   uploadDocumentHandler,
 );

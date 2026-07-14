@@ -12,6 +12,13 @@ const AUDITED_MODELS = new Set([
   "Admission",
   "LabResult",
   "HospitalSetting",
+  "PatientIntake",
+  "SymptomCategory",
+  "RadiologyReport",
+  "RadiologyOrder",
+  "SurgeryRequest",
+  "NursingNote",
+  "MedicationAdministration",
 ]);
 
 const AUDITED_OPERATIONS = new Set(["create", "update", "delete"]);

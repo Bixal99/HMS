@@ -1,5 +1,6 @@
 ﻿import { differenceInCalendarDays } from "date-fns";
 import { prisma } from "../../lib/prisma";
+import { emitInvoiceCreated } from "../../lib/socket";
 import { getSetting } from "../settings/settings.service";
 
 export class NoBillableItemsError extends Error {
@@ -18,7 +19,14 @@ function formatDate(value: Date) {
 }
 
 type NewItem = {
-  sourceType: "CONSULTATION" | "LAB" | "PHARMACY" | "BED" | "OTHER";
+  sourceType:
+    | "CONSULTATION"
+    | "LAB"
+    | "PHARMACY"
+    | "BED"
+    | "RADIOLOGY"
+    | "SURGERY"
+    | "OTHER";
   sourceId: string | null;
   description: string;
   quantity: number;
@@ -31,8 +39,12 @@ export async function generateInvoiceForPatient(patientId: string) {
     "billing.consultationFeeCents",
   );
   const taxRatePercent = await getSetting<number>("billing.taxRatePercent");
+  const nursingDailyCents = await getSetting<number>("billing.nursingDailyCents");
+  const defaultSurgeryFeeCents = await getSetting<number>(
+    "billing.defaultSurgeryFeeCents",
+  );
 
-  return prisma.$transaction(async (tx) => {
+  const invoice = await prisma.$transaction(async (tx) => {
     const items: NewItem[] = [];
     const now = new Date();
 
@@ -103,6 +115,52 @@ export async function generateInvoiceForPatient(patientId: string) {
       });
     }
 
+    const radiologyItems = await tx.radiologyOrderItem.findMany({
+      where: {
+        status: "REPORTED",
+        invoicedAt: null,
+        radiologyOrder: { patientId },
+      },
+      include: { modality: true },
+    });
+    for (const ri of radiologyItems) {
+      items.push({
+        sourceType: "RADIOLOGY",
+        sourceId: ri.id,
+        description: `Imaging — ${ri.modality.name}`,
+        quantity: 1,
+        unitPriceCents: ri.modality.priceCents,
+        lineTotalCents: ri.modality.priceCents,
+      });
+      await tx.radiologyOrderItem.update({
+        where: { id: ri.id },
+        data: { invoicedAt: now },
+      });
+    }
+
+    const surgeries = await tx.surgeryRequest.findMany({
+      where: {
+        patientId,
+        status: "COMPLETED",
+        invoicedAt: null,
+      },
+    });
+    for (const s of surgeries) {
+      const fee = s.feeCents ?? defaultSurgeryFeeCents;
+      items.push({
+        sourceType: "SURGERY",
+        sourceId: s.id,
+        description: `Surgery — ${s.procedureName}`,
+        quantity: 1,
+        unitPriceCents: fee,
+        lineTotalCents: fee,
+      });
+      await tx.surgeryRequest.update({
+        where: { id: s.id },
+        data: { invoicedAt: now },
+      });
+    }
+
     const admissions = await tx.admission.findMany({
       where: {
         patientId,
@@ -116,15 +174,27 @@ export async function generateInvoiceForPatient(patientId: string) {
         1,
         differenceInCalendarDays(adm.dischargedAt!, adm.admittedAt),
       );
-      const lineTotal = adm.bed.dailyRateCents * days;
+      const bedTotal = adm.bed.dailyRateCents * days;
       items.push({
         sourceType: "BED",
         sourceId: adm.id,
         description: `Bed ${adm.bed.bedNumber} × ${days} day(s)`,
         quantity: days,
         unitPriceCents: adm.bed.dailyRateCents,
-        lineTotalCents: lineTotal,
+        lineTotalCents: bedTotal,
       });
+
+      if (nursingDailyCents > 0) {
+        items.push({
+          sourceType: "OTHER",
+          sourceId: adm.id,
+          description: `Nursing care × ${days} day(s)`,
+          quantity: days,
+          unitPriceCents: nursingDailyCents,
+          lineTotalCents: nursingDailyCents * days,
+        });
+      }
+
       await tx.admission.update({
         where: { id: adm.id },
         data: { invoicedAt: now },
@@ -165,4 +235,12 @@ export async function generateInvoiceForPatient(patientId: string) {
       },
     });
   });
+
+  emitInvoiceCreated({
+    invoiceId: invoice.id,
+    patientId: invoice.patientId,
+    totalCents: invoice.totalCents,
+  });
+
+  return invoice;
 }

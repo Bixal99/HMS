@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { Poppins } from "next/font/google";
 import { MarketingNav } from "./MarketingNav";
 import { MarketingHero } from "./MarketingHero";
 import { TrustedBy } from "./TrustedBy";
@@ -16,15 +15,7 @@ import { ContactSection } from "./ContactSection";
 import { LandingFooter } from "./LandingFooter";
 import { LandingCursor } from "./LandingCursor";
 import { destroySmoothScroll, initSmoothScroll } from "@/lib/smoothScroll";
-import { cn } from "@/lib/utils";
 import "./landing.css";
-
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-landing",
-  display: "swap",
-});
 
 export function LandingPage({
   allowRegistration = true,
@@ -37,7 +28,7 @@ export function LandingPage({
   }, []);
 
   return (
-    <div className={cn("landing-root mkt-root", poppins.variable)}>
+    <div className="landing-root mkt-root">
       <LandingCursor />
       <MarketingNav allowRegistration={allowRegistration} />
       <main>
