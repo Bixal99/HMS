@@ -14,9 +14,11 @@ import { apiFetch } from "@/lib/api";
 import type { Patient, PatientListResponse } from "@/lib/patients";
 import { staggerCards } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
+import { ListSkeleton } from "@/components/shared/ListSkeleton";
+import { SearchInput, isTypeaheadBusy } from "@/components/shared/SearchInput";
 
 const columnHelper = createColumnHelper<Patient>();
 
@@ -26,7 +28,7 @@ export function PatientList() {
   const [page, setPage] = useState(1);
   const cardsRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["patients", debouncedSearch, page],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -88,7 +90,7 @@ export function PatientList() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Input
+        <SearchInput
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -97,6 +99,11 @@ export function PatientList() {
           placeholder="Search name, phone, or MRN…"
           className="max-w-md"
           aria-label="Search patients"
+          isSearching={isTypeaheadBusy(search, {
+            debounced: debouncedSearch,
+            isFetching,
+            isLoading,
+          })}
         />
         <Button asChild>
           <Link href="/patients/new">Register Patient</Link>
@@ -104,9 +111,7 @@ export function PatientList() {
       </div>
 
       {isError ? (
-        <p className="text-sm text-destructive">
-          {(error as Error).message || "Failed to load patients"}
-        </p>
+        <QueryErrorState error={error} onRetry={() => void refetch()} />
       ) : null}
 
       {/* Desktop table */}

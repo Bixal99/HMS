@@ -129,7 +129,7 @@ export function MarketingNav({
             </div>
           ) : null}
 
-          <Drawer open={open} onOpenChange={setOpen}>
+          <Drawer open={open} onOpenChange={setOpen} direction="left">
             <DrawerTrigger asChild>
               <Button
                 type="button"
@@ -141,7 +141,7 @@ export function MarketingNav({
                 <Menu className="size-4" />
               </Button>
             </DrawerTrigger>
-            <DrawerContent className="w-[min(20rem,92vw)]">
+            <DrawerContent side="left" className="w-[min(20rem,92vw)]">
               <DrawerHeader>
                 <DrawerTitle>Menu</DrawerTitle>
               </DrawerHeader>

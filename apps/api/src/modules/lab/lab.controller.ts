@@ -3,18 +3,22 @@ import { resolveStaffId, resolvePatientId } from "../appointments/appointments.s
 import {
   collectLabOrder,
   countPendingLabOrders,
+  createCatalogEntry,
   createLabOrder,
   getLabOrderDetail,
   getLabQueue,
   listCatalog,
   listPatientLabResults,
   submitLabResult,
+  updateCatalogEntry,
   updateLabOrderStatus,
   verifyLabResult,
 } from "./lab.service";
 import {
+  createLabCatalogSchema,
   createLabOrderSchema,
   submitResultSchema,
+  updateLabCatalogSchema,
   updateLabOrderStatusSchema,
 } from "./lab.validators";
 
@@ -26,6 +30,28 @@ function paramId(req: Request, key = "id"): string {
 export async function catalogHandler(_req: Request, res: Response) {
   const data = await listCatalog();
   return res.json({ data });
+}
+
+export async function createCatalogHandler(req: Request, res: Response) {
+  const parsed = createLabCatalogSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  const data = await createCatalogEntry(parsed.data);
+  return res.status(201).json({ data });
+}
+
+export async function updateCatalogHandler(req: Request, res: Response) {
+  const parsed = updateLabCatalogSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  try {
+    const data = await updateCatalogEntry(paramId(req), parsed.data);
+    return res.json({ data });
+  } catch {
+    return res.status(404).json({ error: "Catalog entry not found" });
+  }
 }
 
 export async function createOrderHandler(req: Request, res: Response) {

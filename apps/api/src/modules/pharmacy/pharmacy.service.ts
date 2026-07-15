@@ -26,6 +26,56 @@ export async function listMedicinesWithStock() {
   });
 }
 
+export async function createMedicine(input: {
+  name: string;
+  genericName?: string | null;
+  form: string;
+  strength: string;
+  reorderThreshold: number;
+  sellingPriceCents: number;
+}) {
+  return prisma.medicine.create({
+    data: {
+      name: input.name,
+      genericName: input.genericName ?? null,
+      form: input.form,
+      strength: input.strength,
+      reorderThreshold: input.reorderThreshold,
+      sellingPriceCents: input.sellingPriceCents,
+    },
+  });
+}
+
+export async function updateMedicine(
+  id: string,
+  input: {
+    name?: string;
+    genericName?: string | null;
+    form?: string;
+    strength?: string;
+    reorderThreshold?: number;
+    sellingPriceCents?: number;
+  },
+) {
+  return prisma.medicine.update({
+    where: { id },
+    data: {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.genericName !== undefined
+        ? { genericName: input.genericName }
+        : {}),
+      ...(input.form !== undefined ? { form: input.form } : {}),
+      ...(input.strength !== undefined ? { strength: input.strength } : {}),
+      ...(input.reorderThreshold !== undefined
+        ? { reorderThreshold: input.reorderThreshold }
+        : {}),
+      ...(input.sellingPriceCents !== undefined
+        ? { sellingPriceCents: input.sellingPriceCents }
+        : {}),
+    },
+  });
+}
+
 export async function getPharmacyQueue() {
   const prescriptions = await prisma.prescription.findMany({
     where: { status: { not: "CANCELLED" } },

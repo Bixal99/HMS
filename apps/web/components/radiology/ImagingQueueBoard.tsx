@@ -8,16 +8,14 @@ import { toast } from "sonner";
 import { apiFetch, API_BASE, ApiError } from "@/lib/api";
 import { KanbanBoard } from "@/components/shared/KanbanBoard";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { BoardSkeleton } from "@/components/shared/BoardSkeleton";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { PageEnter } from "@/components/shared/PageEnter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { ActionDrawer } from "@/components/shared/ActionDrawer";
 
 const COLUMNS = [
   { id: "ORDERED", label: "Ordered" },
@@ -88,7 +86,7 @@ export function ImagingQueueBoard({ role }: { role: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["radiology-queue"],
     queryFn: () =>
       apiFetch<{ data: Record<string, Omit<RadCard, "columnId">[]> }>(
@@ -112,7 +110,7 @@ export function ImagingQueueBoard({ role }: { role: string }) {
   });
 
   const stageMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
+    mutationFn: ({ id, status }: { id: string; status: Stage }) =>
       apiFetch(`/api/radiology/orders/${id}/stage`, {
         method: "PATCH",
         body: JSON.stringify({ status }),
@@ -135,7 +133,7 @@ export function ImagingQueueBoard({ role }: { role: string }) {
             else next[col.id].push(order);
           }
         }
-        if (moved && status in next) next[status as Stage].push(moved);
+        if (moved && status in next) next[status].push(moved);
         queryClient.setQueryData(["radiology-queue"], { data: next });
       }
       return { prev };
@@ -195,7 +193,9 @@ export function ImagingQueueBoard({ role }: { role: string }) {
         </div>
 
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <BoardSkeleton columns={3} label="Loading imaging queue…" />
+        ) : isError ? (
+          <QueryErrorState error={error} onRetry={() => void refetch()} />
         ) : cards.length === 0 ? (
           <EmptyState
             icon={<Scan className="size-6 text-muted-foreground" />}
@@ -206,7 +206,9 @@ export function ImagingQueueBoard({ role }: { role: string }) {
           <KanbanBoard
             columns={[...COLUMNS]}
             items={cards}
-            onMove={(id, to) => stageMutation.mutate({ id, status: to })}
+            onMove={(id, to) =>
+              stageMutation.mutate({ id, status: to as Stage })
+            }
             onCardOpen={(item) => setDrawerId(item.id)}
             renderCard={(order, { open }) => (
               <button
@@ -229,108 +231,118 @@ export function ImagingQueueBoard({ role }: { role: string }) {
         )}
       </div>
 
-      <Drawer open={Boolean(drawerId)} onOpenChange={(o) => !o && setDrawerId(null)}>
-        <DrawerContent className="max-h-[90vh]">
-          <DrawerHeader>
-            <DrawerTitle>Imaging order</DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-4 overflow-auto px-4 pb-6">
-            {detail.data ? (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  {detail.data.patient.firstName} {detail.data.patient.lastName} ·{" "}
-                  {detail.data.patient.mrn}
-                </p>
-                {role !== "DOCTOR" && detail.data.status === "ORDERED" ? (
-                  <Button
-                    type="button"
-                    onClick={() =>
-                      stageMutation.mutate({ id: detail.data!.id, status: "IN_PROGRESS" })
-                    }
-                  >
-                    Start study
-                  </Button>
-                ) : null}
-                <ul className="space-y-3">
-                  {detail.data.items.map((item) => (
-                    <li
-                      key={item.id}
-                      className="rounded-md border border-border bg-card p-3 text-sm"
-                    >
-                      <p className="font-medium text-foreground">{item.modality.name}</p>
-                      <p className="text-xs text-muted-foreground">{item.status}</p>
-                      {item.report ? (
-                        <div className="mt-2 space-y-1 text-muted-foreground">
-                          {item.report.findings ? <p>Findings: {item.report.findings}</p> : null}
-                          {item.report.impression ? (
-                            <p>Impression: {item.report.impression}</p>
-                          ) : null}
-                          {item.report.reportFileUrl ? (
-                            <a
-                              className="text-primary underline"
-                              href={`${API_BASE}${item.report.reportFileUrl}`}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Open report file
-                            </a>
-                          ) : null}
-                        </div>
-                      ) : role !== "DOCTOR" && item.status !== "REPORTED" ? (
-                        <div className="mt-3 space-y-2">
-                          {activeItemId === item.id ? (
-                            <>
-                              <div className="space-y-1">
-                                <Label htmlFor={`f-${item.id}`}>Findings</Label>
-                                <Input
-                                  id={`f-${item.id}`}
-                                  value={findings}
-                                  onChange={(e) => setFindings(e.target.value)}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label htmlFor={`i-${item.id}`}>Impression</Label>
-                                <Input
-                                  id={`i-${item.id}`}
-                                  value={impression}
-                                  onChange={(e) => setImpression(e.target.value)}
-                                />
-                              </div>
-                              <Input
-                                type="file"
-                                accept=".pdf,image/*"
-                                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                              />
-                              <Button
-                                type="button"
-                                disabled={reportMutation.isPending}
-                                onClick={() => reportMutation.mutate(item.id)}
-                              >
-                                Submit report
-                              </Button>
-                            </>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setActiveItemId(item.id)}
-                            >
-                              Add report
-                            </Button>
-                          )}
-                        </div>
+      <ActionDrawer
+        open={Boolean(drawerId)}
+        onOpenChange={(o) => !o && setDrawerId(null)}
+        icon={Scan}
+        title="Imaging order"
+        description={
+          detail.data
+            ? `${detail.data.patient.firstName} ${detail.data.patient.lastName} · ${detail.data.patient.mrn}`
+            : undefined
+        }
+        widthClass="w-[min(32rem,94vw)]"
+        footer={
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => setDrawerId(null)}
+          >
+            Close
+          </Button>
+        }
+      >
+        {detail.data ? (
+          <>
+            {role !== "DOCTOR" && detail.data.status === "ORDERED" ? (
+              <Button
+                type="button"
+                onClick={() =>
+                  stageMutation.mutate({ id: detail.data!.id, status: "IN_PROGRESS" })
+                }
+              >
+                Start study
+              </Button>
+            ) : null}
+            <ul className="space-y-3">
+              {detail.data.items.map((item) => (
+                <li
+                  key={item.id}
+                  className="rounded-md border border-border bg-card p-3 text-sm"
+                >
+                  <p className="font-medium text-foreground">{item.modality.name}</p>
+                  <p className="text-xs text-muted-foreground">{item.status}</p>
+                  {item.report ? (
+                    <div className="mt-2 space-y-1 text-muted-foreground">
+                      {item.report.findings ? <p>Findings: {item.report.findings}</p> : null}
+                      {item.report.impression ? (
+                        <p>Impression: {item.report.impression}</p>
                       ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Loading…</p>
-            )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+                      {item.report.reportFileUrl ? (
+                        <a
+                          className="text-primary underline"
+                          href={`${API_BASE}${item.report.reportFileUrl}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open report file
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : role !== "DOCTOR" && item.status !== "REPORTED" ? (
+                    <div className="mt-3 space-y-2">
+                      {activeItemId === item.id ? (
+                        <>
+                          <div className="space-y-1">
+                            <Label htmlFor={`f-${item.id}`}>Findings</Label>
+                            <Input
+                              id={`f-${item.id}`}
+                              value={findings}
+                              onChange={(e) => setFindings(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor={`i-${item.id}`}>Impression</Label>
+                            <Input
+                              id={`i-${item.id}`}
+                              value={impression}
+                              onChange={(e) => setImpression(e.target.value)}
+                            />
+                          </div>
+                          <Input
+                            type="file"
+                            accept=".pdf,image/*"
+                            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                          />
+                          <Button
+                            type="button"
+                            disabled={reportMutation.isPending}
+                            onClick={() => reportMutation.mutate(item.id)}
+                          >
+                            Submit report
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveItemId(item.id)}
+                        >
+                          Add report
+                        </Button>
+                      )}
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <InlineLoader label="Loading order…" />
+        )}
+      </ActionDrawer>
     </PageEnter>
   );
 }

@@ -68,6 +68,73 @@ export async function getOccupancy() {
   }));
 }
 
+export async function listWardStructure() {
+  return prisma.ward.findMany({
+    orderBy: [{ floor: "asc" }, { name: "asc" }],
+    include: {
+      department: { select: { id: true, name: true } },
+      beds: { orderBy: { bedNumber: "asc" } },
+    },
+  });
+}
+
+export async function createWard(input: {
+  name: string;
+  departmentId: string;
+  floor: number;
+}) {
+  return prisma.ward.create({
+    data: input,
+    include: {
+      department: { select: { id: true, name: true } },
+      beds: true,
+    },
+  });
+}
+
+export async function updateWard(
+  id: string,
+  input: { name?: string; departmentId?: string; floor?: number },
+) {
+  return prisma.ward.update({
+    where: { id },
+    data: input,
+    include: {
+      department: { select: { id: true, name: true } },
+      beds: { orderBy: { bedNumber: "asc" } },
+    },
+  });
+}
+
+export async function createBed(input: {
+  wardId: string;
+  bedNumber: string;
+  bedType: string;
+  dailyRateCents: number;
+}) {
+  return prisma.bed.create({
+    data: {
+      ...input,
+      status: "AVAILABLE",
+    },
+  });
+}
+
+export async function updateBed(
+  id: string,
+  input: {
+    bedNumber?: string;
+    bedType?: string;
+    dailyRateCents?: number;
+    status?: "AVAILABLE" | "OCCUPIED" | "MAINTENANCE";
+  },
+) {
+  return prisma.bed.update({
+    where: { id },
+    data: input,
+  });
+}
+
 export async function getWardBeds(wardId: string) {
   return prisma.bed.findMany({
     where: { wardId },

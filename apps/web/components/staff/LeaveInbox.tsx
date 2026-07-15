@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
 import { PageEnter } from "@/components/shared/PageEnter";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ListSkeleton } from "@/components/shared/ListSkeleton";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { Button } from "@/components/ui/button";
 
 type LeaveRow = {
@@ -21,7 +23,7 @@ type LeaveRow = {
 
 export function LeaveInbox() {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["leave-requests", "PENDING"],
     queryFn: () =>
       apiFetch<{ data: LeaveRow[] }>("/api/staff/leave-requests?status=PENDING"),
@@ -49,11 +51,9 @@ export function LeaveInbox() {
       </div>
 
       {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-16 animate-shimmer rounded-lg bg-muted" />
-          ))}
-        </div>
+        <ListSkeleton rows={3} label="Loading leave requests…" />
+      ) : isError ? (
+        <QueryErrorState error={error} onRetry={() => void refetch()} />
       ) : (data?.data.length ?? 0) === 0 ? (
         <EmptyState title="No pending leave requests" description="You're all caught up." />
       ) : (

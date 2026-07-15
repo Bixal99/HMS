@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { AdminPortalLayout } from "@/components/layout/portals/AdminPortalLayout";
 import { StaffPortalLayout } from "@/components/layout/portals/StaffPortalLayout";
 import { PatientPortalLayout } from "@/components/layout/portals/PatientPortalLayout";
@@ -16,6 +17,9 @@ export async function AuthenticatedShell({
   children: React.ReactNode;
 }) {
   const user = await requireSessionUser();
+  if (user.mustChangePassword) {
+    redirect("/change-password");
+  }
   const portal = portalForRole(user.role);
 
   if (portal === "admin") {

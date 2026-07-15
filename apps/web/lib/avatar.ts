@@ -1,9 +1,9 @@
-/** Blue-family avatar tint variants derived from a name hash (theme tokens only). */
+/** Soft primary tint + primary text — readable on light cards (no white-on-pale). */
 const AVATAR_TONES = [
   "bg-primary/15 text-primary",
+  "bg-primary/20 text-primary",
   "bg-primary/25 text-primary",
-  "bg-accent/15 text-accent-foreground",
-  "bg-accent/25 text-primary",
+  "bg-primary/30 text-primary",
 ] as const;
 
 export function initialsFromName(name: string): string {

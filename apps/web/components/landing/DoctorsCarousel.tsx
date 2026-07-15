@@ -105,43 +105,43 @@ export function DoctorsCarousel({
           <div className="flex gap-4">
             {isLoading
               ? Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="min-w-0 flex-[0_0_80%] animate-shimmer rounded-xl bg-muted sm:flex-[0_0_40%] lg:flex-[0_0_28%]"
-                    style={{ height: 180 }}
-                  />
-                ))
+                <div
+                  key={i}
+                  className="min-w-0 flex-[0_0_80%] animate-shimmer rounded-xl bg-muted sm:flex-[0_0_40%] lg:flex-[0_0_28%]"
+                  style={{ height: 180 }}
+                />
+              ))
               : items.map((d) => {
-                  const name = d.user.name || d.designation;
-                  return (
-                    <article
-                      key={d.id}
-                      className="mkt-carousel-card min-w-0 flex-[0_0_80%] sm:flex-[0_0_40%] lg:flex-[0_0_28%]"
+                const name = d.user.name || d.designation;
+                return (
+                  <article
+                    key={d.id}
+                    className="mkt-carousel-card min-w-0 flex-[0_0_80%] sm:flex-[0_0_40%] lg:flex-[0_0_28%]"
+                  >
+                    <div className="flex size-12 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+                      {initialsFromName(name)}
+                    </div>
+                    <h3 className="mt-3 font-semibold text-foreground">
+                      {name}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {d.designation}
+                      {d.specialization ? ` · ${d.specialization}` : ""}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {d.department.name}
+                    </p>
+                    <Button
+                      asChild
+                      size="sm"
+                      className="mt-4"
+                      variant="outline"
                     >
-                      <div className="flex size-12 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
-                        {initialsFromName(name)}
-                      </div>
-                      <h3 className="mt-3 font-semibold text-foreground">
-                        {name}
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        {d.designation}
-                        {d.specialization ? ` · ${d.specialization}` : ""}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {d.department.name}
-                      </p>
-                      <Button
-                        asChild
-                        size="sm"
-                        className="mt-4"
-                        variant="outline"
-                      >
-                        <Link href={ctaHref}>Book care</Link>
-                      </Button>
-                    </article>
-                  );
-                })}
+                      <Link href={ctaHref}>Book care</Link>
+                    </Button>
+                  </article>
+                );
+              })}
           </div>
         </div>
       </div>

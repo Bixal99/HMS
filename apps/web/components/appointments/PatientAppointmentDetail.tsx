@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
 import { PageEnter } from "@/components/shared/PageEnter";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { Button } from "@/components/ui/button";
 
 type Event = {
@@ -66,10 +68,21 @@ export function PatientAppointmentDetail() {
   });
 
   const a = q.data;
-  if (!a) {
+  if (q.isLoading) {
     return (
       <PageEnter>
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <InlineLoader label="Loading appointment…" />
+      </PageEnter>
+    );
+  }
+  if (q.isError || !a) {
+    return (
+      <PageEnter>
+        <QueryErrorState
+          error={q.error ?? new Error("Appointment not found")}
+          onRetry={() => void q.refetch()}
+          title="Couldn’t load appointment"
+        />
       </PageEnter>
     );
   }

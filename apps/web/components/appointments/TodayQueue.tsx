@@ -10,6 +10,7 @@ import { apiFetch, API_BASE, ApiError } from "@/lib/api";
 import { crossFade, staggerCards } from "@/lib/motion";
 import { PageEnter } from "@/components/shared/PageEnter";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { SearchInput, isTypeaheadBusy } from "@/components/shared/SearchInput";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -74,6 +75,8 @@ export function TodayQueue({ role, selfStaffId }: TodayQueueProps) {
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [patientQ, setPatientQ] = useState("");
   const [walkInPatientId, setWalkInPatientId] = useState("");
+  const [selectedWalkInPatient, setSelectedWalkInPatient] =
+    useState<PatientHit | null>(null);
   const [walkInReason, setWalkInReason] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -234,9 +237,13 @@ export function TodayQueue({ role, selfStaffId }: TodayQueueProps) {
   const pickDoctor = ["NURSE", "ADMIN", "RECEPTIONIST"].includes(role);
   const canWalkIn = ["RECEPTIONIST", "ADMIN"].includes(role);
 
-  const { data: patientHits } = useQuery({
+  const { data: patientHits, isFetching: patientSearchFetching } = useQuery({
     queryKey: ["walk-in-patients", patientQ],
-    enabled: canWalkIn && walkInOpen && patientQ.trim().length >= 2,
+    enabled:
+      canWalkIn &&
+      walkInOpen &&
+      !selectedWalkInPatient &&
+      patientQ.trim().length >= 1,
     queryFn: () =>
       apiFetch<{ data: PatientHit[] }>(
         `/api/patients?q=${encodeURIComponent(patientQ.trim())}&pageSize=8`,
@@ -257,6 +264,7 @@ export function TodayQueue({ role, selfStaffId }: TodayQueueProps) {
       toast.success("Walk-in token issued — patient checked in");
       setWalkInOpen(false);
       setWalkInPatientId("");
+      setSelectedWalkInPatient(null);
       setPatientQ("");
       setWalkInReason("");
       void queryClient.invalidateQueries({ queryKey: queueKey });
@@ -267,7 +275,7 @@ export function TodayQueue({ role, selfStaffId }: TodayQueueProps) {
 
   return (
     <PageEnter>
-      <div className="mx-auto max-w-xl space-y-6">
+      <div className="w-full min-w-0 space-y-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -323,17 +331,32 @@ export function TodayQueue({ role, selfStaffId }: TodayQueueProps) {
             <p className="text-sm font-medium text-foreground">Issue walk-in token</p>
             <div className="space-y-2">
               <Label htmlFor="walk-in-patient-q">Patient search</Label>
-              <input
+              <SearchInput
                 id="walk-in-patient-q"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                 value={patientQ}
                 onChange={(e) => {
-                  setPatientQ(e.target.value);
-                  setWalkInPatientId("");
+                  const value = e.target.value;
+                  setPatientQ(value);
+                  if (selectedWalkInPatient) {
+                    setSelectedWalkInPatient(null);
+                    setWalkInPatientId("");
+                  }
                 }}
                 placeholder="Name or MRN…"
+                isSearching={isTypeaheadBusy(patientQ, {
+                  isFetching: patientSearchFetching,
+                })}
               />
-              {(patientHits?.data ?? []).length > 0 ? (
+              {selectedWalkInPatient ? (
+                <p className="text-xs text-muted-foreground">
+                  Token for{" "}
+                  <span className="font-medium text-foreground">
+                    {selectedWalkInPatient.firstName}{" "}
+                    {selectedWalkInPatient.lastName} · {selectedWalkInPatient.mrn}
+                  </span>
+                </p>
+              ) : null}
+              {!selectedWalkInPatient && (patientHits?.data ?? []).length > 0 ? (
                 <ul className="max-h-36 overflow-auto rounded-md border border-border text-sm">
                   {patientHits!.data.map((p) => (
                     <li key={p.id}>
@@ -344,8 +367,9 @@ export function TodayQueue({ role, selfStaffId }: TodayQueueProps) {
                           walkInPatientId === p.id && "bg-primary/10 text-primary",
                         )}
                         onClick={() => {
+                          setSelectedWalkInPatient(p);
                           setWalkInPatientId(p.id);
-                          setPatientQ(`${p.firstName} ${p.lastName} · ${p.mrn}`);
+                          setPatientQ(`${p.firstName} ${p.lastName}`);
                         }}
                       >
                         {p.firstName} {p.lastName} · {p.mrn}
@@ -353,6 +377,10 @@ export function TodayQueue({ role, selfStaffId }: TodayQueueProps) {
                     </li>
                   ))}
                 </ul>
+              ) : !selectedWalkInPatient &&
+                patientQ.trim().length >= 1 &&
+                !patientSearchFetching ? (
+                <p className="text-xs text-muted-foreground">No patients matched.</p>
               ) : null}
             </div>
             <div className="space-y-2">

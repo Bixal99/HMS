@@ -10,6 +10,7 @@ import {
 import { KpiTile } from "@/components/reports/KpiTile";
 import { ReportChart } from "@/components/reports/ReportChart";
 import { ExportDialog } from "@/components/reports/ExportDialog";
+import { InlineLoader } from "@/components/shared/InlineLoader";
 
 type ClinicalData = {
   doctorId: string | null;
@@ -115,7 +116,7 @@ function ClinicalPanelInner() {
 
 export function ClinicalDashboard() {
   return (
-    <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<InlineLoader label="Loading report…" />}>
       <ClinicalPanelInner />
     </Suspense>
   );

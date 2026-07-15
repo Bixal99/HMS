@@ -1,4 +1,4 @@
-import { addMinutes, isAfter, isBefore, startOfDay } from "date-fns";
+import { addMinutes, isBefore, startOfDay } from "date-fns";
 import { prisma } from "../../lib/prisma";
 
 /** Combine a calendar date with an "HH:mm" (or "HH:mm:ss") wall-clock time. */
@@ -62,7 +62,8 @@ export async function getAvailableSlots(doctorId: string, date: Date): Promise<S
     while (isBefore(cursor, end)) {
       const iso = cursor.toISOString();
       const booked = bookedTimes.has(iso);
-      const past = !isAfter(cursor, now);
+      // Strictly after "now" — same-minute and earlier slots cannot be booked.
+      const past = cursor.getTime() <= now.getTime();
       slots.push({
         start: iso,
         available: !booked && !past,

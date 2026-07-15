@@ -6,6 +6,10 @@ import { useRouter } from "next/navigation";
 import { Bell } from "lucide-react";
 import { io, type Socket } from "socket.io-client";
 import { API_BASE, apiFetch } from "@/lib/api";
+import {
+  notificationBody,
+  notificationHref,
+} from "@/lib/notification-display";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,11 +25,12 @@ type NotificationItem = {
   title: string;
   body: string | null;
   href: string | null;
+  meta?: unknown;
   readAt: string | null;
   createdAt: string;
 };
 
-export function NotificationCenter() {
+export function NotificationCenter({ role }: { role?: string }) {
   const router = useRouter();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
@@ -89,6 +94,11 @@ export function NotificationCenter() {
       );
       await apiFetch(`/api/notifications/${item.id}/read`, { method: "PATCH" });
     }
+    const href = notificationHref(item, role);
+    if (href) {
+      router.push(href);
+      setOpen(false);
+    }
   }
 
   return (
@@ -111,7 +121,7 @@ export function NotificationCenter() {
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      <DropdownMenuContent align="end" className="w-96">
         <div className="flex items-center justify-between gap-2 px-2 py-1.5">
           <span className="text-sm font-semibold">Notifications</span>
           {unread > 0 ? (
@@ -130,37 +140,46 @@ export function NotificationCenter() {
             No notifications yet
           </p>
         ) : (
-          items.map((item) => (
-            <DropdownMenuItem
-              key={item.id}
-              className={cn("cursor-pointer", !item.readAt && "bg-muted/40")}
-              onSelect={(e) => {
-                e.preventDefault();
-                void onOpenItem(item).then(() => {
-                  if (item.href) {
-                    router.push(item.href);
-                    setOpen(false);
-                  }
-                });
-              }}
-            >
-              <div className="flex min-w-0 flex-col gap-0.5">
-                <span
+          <div className="max-h-80 overflow-y-auto">
+            {items.map((item) => {
+              const body = notificationBody(item);
+              return (
+                <DropdownMenuItem
+                  key={item.id}
                   className={cn(
-                    "truncate text-sm",
-                    !item.readAt ? "font-semibold text-foreground" : "text-foreground",
+                    "cursor-pointer items-start",
+                    !item.readAt && "bg-muted/40",
                   )}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    void onOpenItem(item);
+                  }}
                 >
-                  {item.title}
-                </span>
-                {item.body ? (
-                  <span className="line-clamp-2 text-xs text-muted-foreground">
-                    {item.body}
-                  </span>
-                ) : null}
-              </div>
-            </DropdownMenuItem>
-          ))
+                  <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
+                    <span
+                      className={cn(
+                        "text-sm",
+                        !item.readAt
+                          ? "font-semibold text-foreground"
+                          : "text-foreground",
+                      )}
+                    >
+                      {item.title}
+                    </span>
+                    {body ? (
+                      <span className="line-clamp-2 text-xs text-muted-foreground">
+                        {body}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Open related page
+                      </span>
+                    )}
+                  </div>
+                </DropdownMenuItem>
+              );
+            })}
+          </div>
         )}
         <div className="my-1 h-px bg-border" />
         <DropdownMenuItem asChild>

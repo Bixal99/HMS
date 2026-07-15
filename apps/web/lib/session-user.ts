@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { validateSessionToken } from "@shared/auth";
 import { prisma } from "@/lib/prisma";
@@ -9,13 +10,15 @@ export type SessionUser = {
   email: string;
   role: string;
   isActive: boolean;
+  mustChangePassword?: boolean;
   name?: string | null;
   staffId?: string | null;
   patientId?: string | null;
   departmentId?: string | null;
 };
 
-export async function requireSessionUser(): Promise<SessionUser> {
+/** Deduped per RSC request — AuthenticatedShell + PortalShell both need the user. */
+export const requireSessionUser = cache(async (): Promise<SessionUser> => {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
   if (!token) redirect("/login");
@@ -40,12 +43,12 @@ export async function requireSessionUser(): Promise<SessionUser> {
     patientId: patient?.id ?? null,
     departmentId: staff?.departmentId ?? null,
   };
-}
+});
 
-export async function cookieHeaderFromStore(): Promise<string> {
+export const cookieHeaderFromStore = cache(async (): Promise<string> => {
   const cookieStore = await cookies();
   return cookieStore
     .getAll()
     .map((c) => `${c.name}=${c.value}`)
     .join("; ");
-}
+});

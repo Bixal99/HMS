@@ -7,15 +7,14 @@ import { toast } from "sonner";
 import { apiFetch, API_BASE, ApiError } from "@/lib/api";
 import { KanbanBoard } from "@/components/shared/KanbanBoard";
 import { PageEnter } from "@/components/shared/PageEnter";
+import { BoardSkeleton } from "@/components/shared/BoardSkeleton";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { ActionDrawer } from "@/components/shared/ActionDrawer";
 import { cn } from "@/lib/utils";
 
 const COLUMNS = [
@@ -85,7 +84,7 @@ export function LabProcessingBoard({ role }: { role: string }) {
   );
   const [manualCritical, setManualCritical] = useState<Record<string, boolean>>({});
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["lab-queue"],
     queryFn: async () => {
       const res = await apiFetch<{ data: Record<Stage, Omit<LabCard, "columnId">[]> }>(
@@ -207,8 +206,15 @@ export function LabProcessingBoard({ role }: { role: string }) {
           </div>
         ) : null}
 
-        {isLoading || !data ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+        {isLoading ? (
+          <BoardSkeleton columns={4} label="Loading lab queue…" />
+        ) : isError ? (
+          <QueryErrorState error={error} onRetry={() => void refetch()} />
+        ) : !data || data.length === 0 ? (
+          <EmptyState
+            title="No lab orders"
+            description="Orders appear here when doctors request tests during a visit."
+          />
         ) : (
           <KanbanBoard
             columns={[...COLUMNS]}
@@ -248,18 +254,29 @@ export function LabProcessingBoard({ role }: { role: string }) {
         )}
       </div>
 
-      <Drawer open={Boolean(drawerId)} onOpenChange={(o) => !o && setDrawerId(null)}>
-        <DrawerContent className="max-h-[90vh] w-[min(32rem,94vw)]">
-          <DrawerHeader>
-            <DrawerTitle>
-              {activeDetail
-                ? `${activeDetail.patient.firstName} ${activeDetail.patient.lastName}`
-                : "Lab order"}
-            </DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-4 overflow-y-auto px-4 pb-8">
+      <ActionDrawer
+        open={Boolean(drawerId)}
+        onOpenChange={(o) => !o && setDrawerId(null)}
+        title={
+          activeDetail
+            ? `${activeDetail.patient.firstName} ${activeDetail.patient.lastName}`
+            : "Lab order"
+        }
+        description={activeDetail ? `Status: ${activeDetail.status}` : undefined}
+        widthClass="w-[min(32rem,94vw)]"
+        footer={
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => setDrawerId(null)}
+          >
+            Close
+          </Button>
+        }
+      >
             {!activeDetail ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <InlineLoader label="Loading order…" />
             ) : (
               <>
                 {activeDetail.status === "ORDERED" ? (
@@ -445,9 +462,7 @@ export function LabProcessingBoard({ role }: { role: string }) {
                 })}
               </>
             )}
-          </div>
-        </DrawerContent>
-      </Drawer>
+      </ActionDrawer>
     </PageEnter>
   );
 }

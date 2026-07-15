@@ -2,17 +2,13 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Ban } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
+import { ActionDrawer } from "@/components/shared/ActionDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
 
 type VoidInvoiceDialogProps = {
   invoiceId: string;
@@ -48,35 +44,44 @@ export function VoidInvoiceDialog({
   });
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[90vh] w-[min(28rem,94vw)] overflow-y-auto">
-        <DrawerHeader>
-          <DrawerTitle>Void invoice</DrawerTitle>
-        </DrawerHeader>
-        <div className="space-y-4 px-4 pb-6">
-          <p className="text-sm text-muted-foreground">
-            Voiding keeps source charges marked as billed. A reason is required.
-          </p>
-          <div className="space-y-2">
-            <Label htmlFor="void-reason">Reason</Label>
-            <Input
-              id="void-reason"
-              value={voidReason}
-              onChange={(e) => setVoidReason(e.target.value)}
-              placeholder="e.g. Duplicate invoice created in error"
-            />
-          </div>
+    <ActionDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      icon={Ban}
+      title="Void invoice"
+      description="Voiding keeps source charges marked as billed. A reason is required."
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            onClick={() => onOpenChange(false)}
+            disabled={mutation.isPending}
+          >
+            Cancel
+          </Button>
           <Button
             type="button"
             variant="destructive"
-            className="w-full"
+            className="flex-1"
             disabled={!canSubmit || mutation.isPending}
             onClick={() => mutation.mutate()}
           >
             {mutation.isPending ? "Voiding…" : "Void invoice"}
           </Button>
-        </div>
-      </DrawerContent>
-    </Drawer>
+        </>
+      }
+    >
+      <div className="space-y-2">
+        <Label htmlFor="void-reason">Reason</Label>
+        <Input
+          id="void-reason"
+          value={voidReason}
+          onChange={(e) => setVoidReason(e.target.value)}
+          placeholder="e.g. Duplicate invoice created in error"
+        />
+      </div>
+    </ActionDrawer>
   );
 }

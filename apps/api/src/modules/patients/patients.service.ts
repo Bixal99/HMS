@@ -9,6 +9,49 @@ function emptyToNull(value?: string) {
   return value;
 }
 
+/** Match MRN/phone/partial names and full names like "Bilal Nadeem". */
+function patientSearchOr(q: string) {
+  const trimmed = q.trim();
+  if (!trimmed) return undefined;
+
+  const mode = "insensitive" as const;
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  const or: Array<Record<string, unknown>> = [
+    { firstName: { contains: trimmed, mode } },
+    { lastName: { contains: trimmed, mode } },
+    { phone: { contains: trimmed } },
+    { mrn: { contains: trimmed, mode } },
+  ];
+
+  for (const part of parts) {
+    or.push(
+      { firstName: { contains: part, mode } },
+      { lastName: { contains: part, mode } },
+    );
+  }
+
+  if (parts.length >= 2) {
+    const first = parts[0]!;
+    const last = parts.slice(1).join(" ");
+    or.push(
+      {
+        AND: [
+          { firstName: { contains: first, mode } },
+          { lastName: { contains: last, mode } },
+        ],
+      },
+      {
+        AND: [
+          { firstName: { contains: last, mode } },
+          { lastName: { contains: first, mode } },
+        ],
+      },
+    );
+  }
+
+  return or;
+}
+
 export async function generateMrn(): Promise<string> {
   const year = new Date().getFullYear();
   const prefix = `MRN-${year}-`;
@@ -26,18 +69,10 @@ export async function listPatients(opts: {
   role: string;
 }) {
   const { page, pageSize, q, role } = opts;
+  const searchOr = patientSearchOr(q);
   const where = {
     deletedAt: null,
-    ...(q
-      ? {
-          OR: [
-            { firstName: { contains: q, mode: "insensitive" as const } },
-            { lastName: { contains: q, mode: "insensitive" as const } },
-            { phone: { contains: q } },
-            { mrn: { contains: q, mode: "insensitive" as const } },
-          ],
-        }
-      : {}),
+    ...(searchOr ? { OR: searchOr } : {}),
   };
 
   const [total, rows] = await Promise.all([

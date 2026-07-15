@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaymentModal } from "./PaymentModal";
 import { VoidInvoiceDialog } from "./VoidInvoiceDialog";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { cn } from "@/lib/utils";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -63,13 +65,15 @@ export function InvoiceDetailView({
   }
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading invoice…</p>;
+    return <InlineLoader label="Loading invoice…" />;
   }
   if (error || !invoice) {
     return (
-      <p className="text-sm text-destructive">
-        {(error as Error)?.message || "Invoice not found"}
-      </p>
+      <QueryErrorState
+        error={error ?? new Error("Invoice not found")}
+        onRetry={() => void refetch()}
+        title="Couldn’t load invoice"
+      />
     );
   }
 

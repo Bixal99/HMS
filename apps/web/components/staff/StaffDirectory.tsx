@@ -8,6 +8,8 @@ import { apiFetch } from "@/lib/api";
 import { staggerCards } from "@/lib/motion";
 import { avatarToneClass, initialsFromName } from "@/lib/avatar";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ListSkeleton } from "@/components/shared/ListSkeleton";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { PageEnter } from "@/components/shared/PageEnter";
 import {
   Select,
@@ -42,7 +44,7 @@ export function StaffDirectory() {
     queryFn: () => apiFetch<{ data: Department[] }>("/api/staff/departments"),
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["staff", departmentId, specialization],
     queryFn: () => {
       const params = new URLSearchParams();
@@ -110,15 +112,13 @@ export function StaffDirectory() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-36 animate-shimmer rounded-lg bg-muted" />
-          ))}
-        </div>
+        <ListSkeleton rows={6} label="Loading staff directory…" />
+      ) : isError ? (
+        <QueryErrorState error={error} onRetry={() => void refetch()} />
       ) : (data?.data.length ?? 0) === 0 ? (
         <EmptyState
           title="No staff found"
-          description="Try adjusting filters or onboard staff from admin tools."
+          description="Try adjusting filters or onboard staff from Settings → Users."
         />
       ) : (
         <div ref={gridRef} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,7 +146,7 @@ export function StaffDirectory() {
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   {s.specialization ? (
-                    <span className="inline-flex rounded-md bg-accent/15 px-2 py-0.5 text-xs text-accent-foreground">
+                    <span className="inline-flex rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                       {s.specialization}
                     </span>
                   ) : (

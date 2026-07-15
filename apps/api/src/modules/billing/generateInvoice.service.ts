@@ -35,7 +35,7 @@ type NewItem = {
 };
 
 export async function generateInvoiceForPatient(patientId: string) {
-  const consultationFeeCents = await getSetting<number>(
+  const hospitalConsultationFeeCents = await getSetting<number>(
     "billing.consultationFeeCents",
   );
   const taxRatePercent = await getSetting<number>("billing.taxRatePercent");
@@ -50,8 +50,11 @@ export async function generateInvoiceForPatient(patientId: string) {
 
     const encounters = await tx.encounter.findMany({
       where: { patientId, status: "FINALIZED", invoicedAt: null },
+      include: { doctor: { select: { consultationFeeCents: true } } },
     });
     for (const enc of encounters) {
+      const consultationFeeCents =
+        enc.doctor.consultationFeeCents ?? hospitalConsultationFeeCents;
       items.push({
         sourceType: "CONSULTATION",
         sourceId: enc.id,

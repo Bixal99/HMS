@@ -37,3 +37,25 @@ export const medicationAdminSchema = z.object({
   route: z.string().min(1).max(50),
   notes: z.string().max(1000).optional().nullable(),
 });
+
+export const createWardSchema = z.object({
+  name: z.string().min(1).max(120),
+  departmentId: z.string().uuid(),
+  floor: z.number().int(),
+});
+
+export const updateWardSchema = createWardSchema.partial();
+
+export const createBedSchema = z.object({
+  wardId: z.string().uuid(),
+  bedNumber: z.string().min(1).max(40),
+  bedType: z.string().min(1).max(80),
+  dailyRateCents: z.number().int().min(0),
+});
+
+export const updateBedSchema = z.object({
+  bedNumber: z.string().min(1).max(40).optional(),
+  bedType: z.string().min(1).max(80).optional(),
+  dailyRateCents: z.number().int().min(0).optional(),
+  status: z.enum(["AVAILABLE", "OCCUPIED", "MAINTENANCE"]).optional(),
+});

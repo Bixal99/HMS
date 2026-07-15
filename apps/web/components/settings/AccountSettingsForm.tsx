@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PasswordField } from "@/components/auth/PasswordField";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 
 type MeUser = {
   id: string;
@@ -21,7 +23,7 @@ type MeUser = {
 export function AccountSettingsForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["users-me"],
     queryFn: () => apiFetch<MeUser>("/api/users/me"),
   });
@@ -72,8 +74,17 @@ export function AccountSettingsForm() {
       ),
   });
 
-  if (isLoading || !data) {
-    return <p className="text-sm text-muted-foreground">Loading account…</p>;
+  if (isLoading) {
+    return <InlineLoader label="Loading account…" />;
+  }
+  if (isError || !data) {
+    return (
+      <QueryErrorState
+        error={error ?? new Error("Account unavailable")}
+        onRetry={() => void refetch()}
+        title="Couldn’t load account"
+      />
+    );
   }
 
   return (

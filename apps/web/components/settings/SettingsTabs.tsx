@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@/lib/api";
@@ -8,16 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { ActionDrawer } from "@/components/shared/ActionDrawer";
+import { StaffOnboardingForm } from "@/components/staff/StaffOnboardingForm";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 type Tab =
   | "general"
   | "departments"
+  | "specialties"
   | "symptom-categories"
   | "billing"
   | "notifications"
@@ -25,6 +24,7 @@ type Tab =
 
 type SettingRow = { key: string; value: unknown };
 type Department = { id: string; name: string; description: string | null };
+type Specialty = { id: string; name: string; description: string | null };
 type SymptomCategory = {
   id: string;
   name: string;
@@ -55,19 +55,42 @@ const ROLES = [
   "BILLING_OFFICER",
 ] as const;
 
+const TAB_ORDER: Tab[] = [
+  "general",
+  "departments",
+  "specialties",
+  "symptom-categories",
+  "billing",
+  "notifications",
+  "users",
+];
+
 function settingMap(rows: SettingRow[]) {
   return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+
+function parseTab(raw: string | null): Tab | null {
+  if (!raw) return null;
+  return TAB_ORDER.includes(raw as Tab) ? (raw as Tab) : null;
 }
 
 export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
   const qc = useQueryClient();
   const tablistId = useId();
-  const [tab, setTab] = useState<Tab>("general");
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<Tab>(
+    () => parseTab(searchParams.get("tab")) ?? "general",
+  );
   const [confirm, setConfirm] = useState<{
     title: string;
     body: string;
     onConfirm: () => void;
   } | null>(null);
+
+  useEffect(() => {
+    const fromUrl = parseTab(searchParams.get("tab"));
+    if (fromUrl) setTab(fromUrl);
+  }, [searchParams]);
 
   const { data: settingsData } = useQuery({
     queryKey: ["settings"],
@@ -80,6 +103,13 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
     queryFn: () => apiFetch<{ data: Department[] }>("/api/departments"),
   });
   const departments = deptsData?.data ?? [];
+
+  const { data: specialtiesData } = useQuery({
+    queryKey: ["specialties"],
+    queryFn: () => apiFetch<{ data: Specialty[] }>("/api/specialties"),
+    enabled: tab === "specialties",
+  });
+  const specialties = specialtiesData?.data ?? [];
 
   const { data: symptomCatsData } = useQuery({
     queryKey: ["symptom-categories"],
@@ -154,6 +184,15 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
     name: string;
     description: string;
   } | null>(null);
+  const [specialtyForm, setSpecialtyForm] = useState({
+    name: "",
+    description: "",
+  });
+  const [editingSpecialty, setEditingSpecialty] = useState<{
+    id: string;
+    name: string;
+    description: string;
+  } | null>(null);
   const [symptomForm, setSymptomForm] = useState({
     name: "",
     description: "",
@@ -165,16 +204,6 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
     description: string;
     suggestedDepartmentId: string;
   } | null>(null);
-  const [staffForm, setStaffForm] = useState({
-    email: "",
-    password: "",
-    name: "",
-    role: "NURSE",
-    employeeCode: "",
-    departmentId: "",
-    designation: "",
-    specialization: "",
-  });
 
   const [hydrated, setHydrated] = useState(false);
 
@@ -198,26 +227,29 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
 
   const onKeyDownTabs = useCallback(
     (event: React.KeyboardEvent) => {
-      const order: Tab[] = [
-        "general",
-        "departments",
-        "symptom-categories",
-        "billing",
-        "notifications",
-        "users",
-      ];
-      const idx = order.indexOf(tab);
+      const idx = TAB_ORDER.indexOf(tab);
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        setTab(order[(idx + 1) % order.length]!);
+        selectTab(TAB_ORDER[(idx + 1) % TAB_ORDER.length]!);
       }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        setTab(order[(idx - 1 + order.length) % order.length]!);
+        selectTab(TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length]!);
       }
     },
     [tab],
   );
+
+  function selectTab(next: Tab) {
+    setTab(next);
+    // Keep deep-links working without a full settings remount on every click.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (next === "general") url.searchParams.delete("tab");
+      else url.searchParams.set("tab", next);
+      window.history.replaceState(null, "", url.pathname + url.search);
+    }
+  }
 
   const createDept = useMutation({
     mutationFn: () =>
@@ -249,6 +281,41 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
       toast.success("Department updated");
       setEditingDept(null);
       await qc.invalidateQueries({ queryKey: ["departments"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof ApiError ? err.message : "Update failed"),
+  });
+
+  const createSpecialty = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/specialties", {
+        method: "POST",
+        body: JSON.stringify(specialtyForm),
+      }),
+    onSuccess: async () => {
+      toast.success("Specialty created");
+      setSpecialtyForm({ name: "", description: "" });
+      await qc.invalidateQueries({ queryKey: ["specialties"] });
+    },
+    onError: (err) =>
+      toast.error(err instanceof ApiError ? err.message : "Create failed"),
+  });
+
+  const updateSpecialty = useMutation({
+    mutationFn: () => {
+      if (!editingSpecialty) throw new Error("No specialty");
+      return apiFetch(`/api/specialties/${editingSpecialty.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: editingSpecialty.name,
+          description: editingSpecialty.description || null,
+        }),
+      });
+    },
+    onSuccess: async () => {
+      toast.success("Specialty updated");
+      setEditingSpecialty(null);
+      await qc.invalidateQueries({ queryKey: ["specialties"] });
     },
     onError: (err) =>
       toast.error(err instanceof ApiError ? err.message : "Update failed"),
@@ -294,36 +361,10 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
       toast.error(err instanceof ApiError ? err.message : "Update failed"),
   });
 
-  const createStaff = useMutation({
-    mutationFn: () =>
-      apiFetch("/api/staff", {
-        method: "POST",
-        body: JSON.stringify({
-          ...staffForm,
-          specialization: staffForm.specialization || undefined,
-        }),
-      }),
-    onSuccess: async () => {
-      toast.success("Staff user created");
-      setStaffForm({
-        email: "",
-        password: "",
-        name: "",
-        role: "NURSE",
-        employeeCode: "",
-        departmentId: "",
-        designation: "",
-        specialization: "",
-      });
-      await qc.invalidateQueries({ queryKey: ["users"] });
-    },
-    onError: (err) =>
-      toast.error(err instanceof ApiError ? err.message : "Create failed"),
-  });
-
   const tabs: { id: Tab; label: string }[] = [
     { id: "general", label: "General" },
     { id: "departments", label: "Departments" },
+    { id: "specialties", label: "Specialties" },
     { id: "symptom-categories", label: "Symptom categories" },
     { id: "billing", label: "Billing" },
     { id: "notifications", label: "Notifications" },
@@ -360,7 +401,7 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
                 ? "border-b-2 border-primary font-medium text-primary"
                 : "text-muted-foreground"
             }`}
-            onClick={() => setTab(t.id)}
+            onClick={() => selectTab(t.id)}
           >
             {t.label}
           </button>
@@ -536,6 +577,121 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
                           id: d.id,
                           name: d.name,
                           description: d.description ?? "",
+                        })
+                      }
+                    >
+                      Edit
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {tab === "specialties" ? (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Add specialty</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              <Input
+                placeholder="Name"
+                value={specialtyForm.name}
+                onChange={(e) =>
+                  setSpecialtyForm((d) => ({ ...d, name: e.target.value }))
+                }
+                className="max-w-xs"
+              />
+              <Input
+                placeholder="Description"
+                value={specialtyForm.description}
+                onChange={(e) =>
+                  setSpecialtyForm((d) => ({
+                    ...d,
+                    description: e.target.value,
+                  }))
+                }
+                className="max-w-sm"
+              />
+              <Button
+                type="button"
+                disabled={!specialtyForm.name || createSpecialty.isPending}
+                onClick={() => createSpecialty.mutate()}
+              >
+                Create
+              </Button>
+            </CardContent>
+          </Card>
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {specialties.length === 0 ? (
+              <li className="px-4 py-8">
+                <EmptyState
+                  className="border-0 bg-transparent py-4"
+                  title="No specialties yet"
+                  description="Create a specialty above so doctors can be assigned one during onboarding."
+                />
+              </li>
+            ) : null}
+            {specialties.map((s) => (
+              <li key={s.id} className="space-y-2 px-4 py-3 text-sm">
+                {editingSpecialty?.id === s.id ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      value={editingSpecialty.name}
+                      onChange={(e) =>
+                        setEditingSpecialty((cur) =>
+                          cur ? { ...cur, name: e.target.value } : cur,
+                        )
+                      }
+                      className="max-w-xs"
+                    />
+                    <Input
+                      value={editingSpecialty.description}
+                      onChange={(e) =>
+                        setEditingSpecialty((cur) =>
+                          cur ? { ...cur, description: e.target.value } : cur,
+                        )
+                      }
+                      className="max-w-sm"
+                      placeholder="Description"
+                    />
+                    <Button
+                      size="sm"
+                      type="button"
+                      disabled={updateSpecialty.isPending}
+                      onClick={() => updateSpecialty.mutate()}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => setEditingSpecialty(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{s.name}</p>
+                      {s.description ? (
+                        <p className="text-muted-foreground">{s.description}</p>
+                      ) : null}
+                    </div>
+                    <Button
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() =>
+                        setEditingSpecialty({
+                          id: s.id,
+                          name: s.name,
+                          description: s.description ?? "",
                         })
                       }
                     >
@@ -837,81 +993,14 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
 
       {tab === "users" ? (
         <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Onboard staff</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2 sm:grid-cols-2">
-              {(
-                [
-                  ["email", "Email"],
-                  ["password", "Password"],
-                  ["name", "Name"],
-                  ["employeeCode", "Employee code"],
-                  ["designation", "Designation"],
-                  ["specialization", "Specialization"],
-                ] as const
-              ).map(([field, label]) => (
-                <div key={field} className="space-y-1">
-                  <Label htmlFor={`s-${field}`}>{label}</Label>
-                  <Input
-                    id={`s-${field}`}
-                    type={field === "password" ? "password" : "text"}
-                    value={staffForm[field]}
-                    onChange={(e) =>
-                      setStaffForm((f) => ({ ...f, [field]: e.target.value }))
-                    }
-                  />
-                </div>
-              ))}
-              <div className="space-y-1">
-                <Label htmlFor="s-role">Role</Label>
-                <select
-                  id="s-role"
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={staffForm.role}
-                  onChange={(e) =>
-                    setStaffForm((f) => ({ ...f, role: e.target.value }))
-                  }
-                >
-                  {ROLES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="s-dept">Department</Label>
-                <select
-                  id="s-dept"
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={staffForm.departmentId}
-                  onChange={(e) =>
-                    setStaffForm((f) => ({
-                      ...f,
-                      departmentId: e.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Select…</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button
-                type="button"
-                className="sm:col-span-2"
-                disabled={createStaff.isPending}
-                onClick={() => createStaff.mutate()}
-              >
-                Create staff user
-              </Button>
-            </CardContent>
-          </Card>
+          <StaffOnboardingForm
+            departments={departments}
+            defaultConsultationFeeCents={
+              typeof settings["billing.consultationFeeCents"] === "number"
+                ? (settings["billing.consultationFeeCents"] as number)
+                : Number(settings["billing.consultationFeeCents"] ?? 5000)
+            }
+          />
 
           <ul className="divide-y divide-border rounded-lg border border-border">
             {users.map((u) => (
@@ -1013,28 +1102,33 @@ export function SettingsTabs({ embedded = false }: { embedded?: boolean }) {
         </div>
       ) : null}
 
-      <Drawer open={Boolean(confirm)} onOpenChange={(o) => !o && setConfirm(null)}>
-        <DrawerContent className="w-[min(24rem,94vw)]">
-          <DrawerHeader>
-            <DrawerTitle>{confirm?.title}</DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-3 px-4 pb-6">
-            <p className="text-sm text-muted-foreground">{confirm?.body}</p>
-            <div className="flex gap-2">
-              <Button type="button" onClick={() => confirm?.onConfirm()}>
-                Confirm
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setConfirm(null)}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <ActionDrawer
+        open={Boolean(confirm)}
+        onOpenChange={(o) => !o && setConfirm(null)}
+        title={confirm?.title ?? "Confirm"}
+        widthClass="w-[min(24rem,94vw)]"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => setConfirm(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
+              onClick={() => confirm?.onConfirm()}
+            >
+              Confirm
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">{confirm?.body}</p>
+      </ActionDrawer>
     </div>
   );
 }

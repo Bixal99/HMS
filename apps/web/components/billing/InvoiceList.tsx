@@ -7,6 +7,8 @@ import { apiFetch } from "@/lib/api";
 import { formatCents, type InvoiceListRow } from "@/lib/billing";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
+import { ListSkeleton } from "@/components/shared/ListSkeleton";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { cn } from "@/lib/utils";
 
 const STATUS_CLASS: Record<string, string> = {
@@ -22,7 +24,7 @@ type InvoiceListProps = {
 };
 
 export function InvoiceList({ patientId }: InvoiceListProps) {
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["billing-invoices", patientId ?? "all"],
     queryFn: () => {
       const params = new URLSearchParams();
@@ -39,11 +41,9 @@ export function InvoiceList({ patientId }: InvoiceListProps) {
   return (
     <div className="space-y-4">
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading invoices…</p>
-      ) : error ? (
-        <p className="text-sm text-destructive">
-          {(error as Error).message || "Failed to load invoices"}
-        </p>
+        <ListSkeleton rows={4} label="Loading invoices…" />
+      ) : isError ? (
+        <QueryErrorState error={error} onRetry={() => void refetch()} />
       ) : rows.length === 0 ? (
         <EmptyState
           title="No invoices yet"

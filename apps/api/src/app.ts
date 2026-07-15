@@ -29,6 +29,7 @@ import auditRoutes from "./modules/audit/audit.routes";
 import {
   departmentsRoutes,
   settingsRoutes,
+  specialtiesRoutes,
   usersRoutes,
 } from "./modules/settings/settings.routes";
 import publicRoutes from "./modules/public/public.routes";
@@ -44,11 +45,28 @@ const app = express();
 const port = Number(process.env.PORT ?? 4000);
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 
+const corsOrigins = Array.from(
+  new Set(
+    [
+      webOrigin,
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+    ].filter(Boolean),
+  ),
+);
+
 app.set("trust proxy", 1);
 
 app.use(
   cors({
-    origin: webOrigin,
+    origin(origin, callback) {
+      // Allow non-browser / same-origin tools with no Origin header
+      if (!origin || corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS blocked for origin ${origin}`));
+    },
     credentials: true,
   }),
 );
@@ -104,6 +122,7 @@ app.use("/api/reports", reportsRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/departments", departmentsRoutes);
+app.use("/api/specialties", specialtiesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/symptom-categories", symptomCategoriesRoutes);

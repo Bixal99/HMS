@@ -141,7 +141,63 @@ type AppointmentNotifyPayload = {
   patientId?: string;
   status?: string;
   priority?: string;
+  scheduledAt?: string | Date;
+  reasonForVisit?: string | null;
+  patient?: {
+    firstName?: string;
+    lastName?: string;
+    mrn?: string;
+  };
+  doctor?: {
+    user?: { name?: string | null; email?: string };
+    specialization?: string | null;
+  };
 };
+
+function patientLabel(appointment: AppointmentNotifyPayload) {
+  const p = appointment.patient;
+  if (!p) return "Patient";
+  const name = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
+  if (name && p.mrn) return `${name} · ${p.mrn}`;
+  return name || p.mrn || "Patient";
+}
+
+function doctorLabel(appointment: AppointmentNotifyPayload) {
+  const d = appointment.doctor?.user;
+  return d?.name?.trim() || d?.email || "Doctor";
+}
+
+function whenLabel(appointment: AppointmentNotifyPayload) {
+  if (!appointment.scheduledAt) return null;
+  const d = new Date(appointment.scheduledAt);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function appointmentBody(
+  appointment: AppointmentNotifyPayload,
+  audience: "patient" | "doctor" | "desk",
+) {
+  const when = whenLabel(appointment);
+  const patient = patientLabel(appointment);
+  const doctor = doctorLabel(appointment);
+  const reason = appointment.reasonForVisit?.trim();
+  const bits =
+    audience === "patient"
+      ? [doctor, when]
+      : audience === "doctor"
+        ? [patient, when]
+        : [patient, doctor, when];
+  const line = bits.filter(Boolean).join(" · ");
+  if (reason) return `${line} — ${reason}`;
+  return line;
+}
 
 export function emitAppointmentEvent(
   event: AppointmentSocketEvent,
@@ -152,7 +208,10 @@ export function emitAppointmentEvent(
   const patientHref = apptId
     ? `/portal/appointments/${apptId}`
     : "/portal/appointments";
-  const receptionHref = "/appointments/pending";
+  const receptionHref =
+    event === "appointment:pending" || event === "appointment:reschedule_requested"
+      ? "/appointments/pending"
+      : "/appointments/queue";
   const doctorHref = "/appointments/queue";
 
   if (server) {
@@ -209,6 +268,7 @@ export function emitAppointmentEvent(
       await notifyRoles(["RECEPTIONIST", "ADMIN"], {
         type: event,
         title: titles[event],
+        body: appointmentBody(appointment, "desk"),
         href: receptionHref,
         meta: appointment as Record<string, unknown>,
       });
@@ -216,7 +276,7 @@ export function emitAppointmentEvent(
         await notifyPatient(appointment.patientId, {
           type: event,
           title: "Appointment request submitted",
-          body: "Status: Pending confirmation. Our staff will review shortly.",
+          body: `${appointmentBody(appointment, "patient")}. Staff will confirm shortly.`,
           href: patientHref,
           meta: appointment as Record<string, unknown>,
         });
@@ -225,20 +285,27 @@ export function emitAppointmentEvent(
     }
 
     if (event === "appointment:confirmed") {
+      const urgent =
+        appointment.priority === "URGENT" || appointment.priority === "EMERGENCY";
       await notifyStaff(appointment.doctorId, {
         type: event,
-        title:
-          appointment.priority === "URGENT" || appointment.priority === "EMERGENCY"
-            ? "Urgent patient scheduled"
-            : "Appointment confirmed",
+        title: urgent ? "Urgent patient scheduled" : "Appointment confirmed",
+        body: appointmentBody(appointment, "doctor"),
         href: doctorHref,
+        meta: appointment as Record<string, unknown>,
+      });
+      await notifyRoles(["RECEPTIONIST", "ADMIN"], {
+        type: event,
+        title: urgent ? "Urgent appointment confirmed" : "Appointment confirmed",
+        body: appointmentBody(appointment, "desk"),
+        href: receptionHref,
         meta: appointment as Record<string, unknown>,
       });
       if (appointment.patientId) {
         await notifyPatient(appointment.patientId, {
           type: event,
           title: "Appointment confirmed",
-          body: "Please arrive 15 minutes early.",
+          body: `${appointmentBody(appointment, "patient")}. Please arrive 15 minutes early.`,
           href: patientHref,
           meta: appointment as Record<string, unknown>,
         });
@@ -256,6 +323,7 @@ export function emitAppointmentEvent(
         await notifyPatient(appointment.patientId, {
           type: event,
           title: titles[event],
+          body: appointmentBody(appointment, "patient"),
           href: patientHref,
           meta: appointment as Record<string, unknown>,
         });
@@ -264,6 +332,7 @@ export function emitAppointmentEvent(
         await notifyRoles(["RECEPTIONIST", "ADMIN"], {
           type: event,
           title: titles[event],
+          body: appointmentBody(appointment, "desk"),
           href: receptionHref,
           meta: appointment as Record<string, unknown>,
         });
@@ -271,6 +340,7 @@ export function emitAppointmentEvent(
           await notifyStaff(appointment.doctorId, {
             type: event,
             title: titles[event],
+            body: appointmentBody(appointment, "doctor"),
             href: doctorHref,
             meta: appointment as Record<string, unknown>,
           });
@@ -283,7 +353,15 @@ export function emitAppointmentEvent(
       await notifyStaff(appointment.doctorId, {
         type: event,
         title: "Patient waiting",
+        body: appointmentBody(appointment, "doctor"),
         href: doctorHref,
+        meta: appointment as Record<string, unknown>,
+      });
+      await notifyRoles(["NURSE", "RECEPTIONIST", "ADMIN"], {
+        type: event,
+        title: "Patient checked in",
+        body: appointmentBody(appointment, "desk"),
+        href: receptionHref,
         meta: appointment as Record<string, unknown>,
       });
       return;
@@ -292,6 +370,7 @@ export function emitAppointmentEvent(
     await notifyStaff(appointment.doctorId, {
       type: event,
       title: titles[event] ?? "Appointment update",
+      body: appointmentBody(appointment, "doctor"),
       href: doctorHref,
       meta: appointment as Record<string, unknown>,
     });
@@ -299,6 +378,7 @@ export function emitAppointmentEvent(
       await notifyPatient(appointment.patientId, {
         type: event,
         title: titles[event],
+        body: appointmentBody(appointment, "patient"),
         href: patientHref,
         meta: appointment as Record<string, unknown>,
       });

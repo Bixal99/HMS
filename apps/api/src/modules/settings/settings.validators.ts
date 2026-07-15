@@ -91,6 +91,16 @@ export const updateDepartmentSchema = z.object({
   description: z.string().max(500).optional().nullable(),
 });
 
+export const createSpecialtySchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(500).optional().nullable(),
+});
+
+export const updateSpecialtySchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  description: z.string().max(500).optional().nullable(),
+});
+
 export const userStatusSchema = z.object({
   isActive: z.boolean(),
 });

@@ -7,14 +7,13 @@ import { toast } from "sonner";
 import { apiFetch, API_BASE, ApiError } from "@/lib/api";
 import { KanbanBoard } from "@/components/shared/KanbanBoard";
 import { PageEnter } from "@/components/shared/PageEnter";
+import { BoardSkeleton } from "@/components/shared/BoardSkeleton";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { ActionDrawer } from "@/components/shared/ActionDrawer";
 
 const COLUMNS = [
   { id: "PENDING_REVIEW", label: "Pending review" },
@@ -63,7 +62,7 @@ export function FulfillmentBoard() {
   const [overrideBatch, setOverrideBatch] = useState<Record<string, string>>({});
   const [stockAlternatives, setStockAlternatives] = useState<string[]>([]);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["pharmacy-queue"],
     queryFn: async () => {
       const res = await apiFetch<{ data: Record<Stage, Omit<QueueRx, "columnId">[]> }>(
@@ -154,8 +153,15 @@ export function FulfillmentBoard() {
           </p>
         </div>
 
-        {isLoading || !data ? (
-          <p className="text-sm text-muted-foreground">Loading queue…</p>
+        {isLoading ? (
+          <BoardSkeleton columns={4} label="Loading pharmacy queue…" />
+        ) : isError ? (
+          <QueryErrorState error={error} onRetry={() => void refetch()} />
+        ) : !data || data.length === 0 ? (
+          <EmptyState
+            title="No prescriptions in queue"
+            description="New prescriptions from doctors appear here for fulfillment."
+          />
         ) : (
           <KanbanBoard
             columns={[...COLUMNS]}
@@ -197,7 +203,7 @@ export function FulfillmentBoard() {
         )}
       </div>
 
-      <Drawer
+      <ActionDrawer
         open={Boolean(drawerId)}
         onOpenChange={(o) => {
           if (!o) {
@@ -205,91 +211,99 @@ export function FulfillmentBoard() {
             setStockAlternatives([]);
           }
         }}
+        title={
+          detail
+            ? `${detail.patient.firstName} ${detail.patient.lastName} · ${detail.patient.mrn}`
+            : "Prescription"
+        }
+        widthClass="w-[min(28rem,92vw)]"
+        footer={
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              setDrawerId(null);
+              setStockAlternatives([]);
+            }}
+          >
+            Close
+          </Button>
+        }
       >
-        <DrawerContent className="max-h-[90vh] w-[min(28rem,92vw)]">
-          <DrawerHeader>
-            <DrawerTitle>
-              {detail
-                ? `${detail.patient.firstName} ${detail.patient.lastName} · ${detail.patient.mrn}`
-                : "Prescription"}
-            </DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-4 overflow-y-auto px-4 pb-8">
-            {stockAlternatives.length > 0 ? (
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <p className="font-medium text-foreground">Suggested in-stock alternatives</p>
-                <ul className="mt-1 list-inside list-disc text-muted-foreground">
-                  {stockAlternatives.map((a) => (
-                    <li key={a}>{a}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {!detail ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
-            ) : (
-              detail.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="space-y-2 rounded-md border border-border p-3"
-                >
-                  <p className="font-medium text-foreground">
-                    {item.medicine.name} {item.medicine.strength}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {item.dosage} · {item.frequency} · qty {item.quantityPrescribed}{" "}
-                    (dispensed {item.dispensed}, remaining {item.remaining})
-                  </p>
-                  {item.fefoBatch ? (
-                    <p className="text-sm text-foreground">
-                      FEFO suggestion: batch{" "}
-                      <span className="font-medium">{item.fefoBatch.batchNo}</span> · expires{" "}
-                      {new Date(item.fefoBatch.expiryDate).toLocaleDateString()} ·{" "}
-                      {item.fefoBatch.quantityInStock} in stock
-                    </p>
-                  ) : (
-                    <p className="text-sm text-destructive">No stock available</p>
-                  )}
-                  <div className="space-y-1">
-                    <Label htmlFor={`batch-${item.id}`}>Use different batch</Label>
-                    <select
-                      id={`batch-${item.id}`}
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      value={overrideBatch[item.id] ?? ""}
-                      onChange={(e) =>
-                        setOverrideBatch((prev) => ({
-                          ...prev,
-                          [item.id]: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">FEFO default</option>
-                      {item.availableBatches.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.batchNo} · exp {new Date(b.expiryDate).toLocaleDateString()} · qty{" "}
-                          {b.quantityInStock}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <Button
-                    type="button"
-                    disabled={item.remaining <= 0 || dispenseMutation.isPending}
-                    onClick={() =>
-                      dispenseMutation.mutate({
-                        itemId: item.id,
-                        overrideBatchId: overrideBatch[item.id] || undefined,
-                      })
-                    }
-                  >
-                    {item.remaining <= 0 ? "Fully dispensed" : "Dispense remaining"}
-                  </Button>
-                </div>
-              ))
-            )}
+        {stockAlternatives.length > 0 ? (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <p className="font-medium text-foreground">Suggested in-stock alternatives</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {stockAlternatives.map((a) => (
+                <li key={a}>{a}</li>
+              ))}
+            </ul>
           </div>
-        </DrawerContent>
-      </Drawer>
+        ) : null}
+        {!detail ? (
+          <InlineLoader label="Loading prescription…" />
+        ) : (
+          detail.items.map((item) => (
+            <div
+              key={item.id}
+              className="space-y-2 rounded-md border border-border p-3"
+            >
+              <p className="font-medium text-foreground">
+                {item.medicine.name} {item.medicine.strength}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {item.dosage} · {item.frequency} · qty {item.quantityPrescribed}{" "}
+                (dispensed {item.dispensed}, remaining {item.remaining})
+              </p>
+              {item.fefoBatch ? (
+                <p className="text-sm text-foreground">
+                  FEFO suggestion: batch{" "}
+                  <span className="font-medium">{item.fefoBatch.batchNo}</span> · expires{" "}
+                  {new Date(item.fefoBatch.expiryDate).toLocaleDateString()} ·{" "}
+                  {item.fefoBatch.quantityInStock} in stock
+                </p>
+              ) : (
+                <p className="text-sm text-destructive">No stock available</p>
+              )}
+              <div className="space-y-1">
+                <Label htmlFor={`batch-${item.id}`}>Use different batch</Label>
+                <select
+                  id={`batch-${item.id}`}
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={overrideBatch[item.id] ?? ""}
+                  onChange={(e) =>
+                    setOverrideBatch((prev) => ({
+                      ...prev,
+                      [item.id]: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">FEFO default</option>
+                  {item.availableBatches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.batchNo} · exp {new Date(b.expiryDate).toLocaleDateString()} · qty{" "}
+                      {b.quantityInStock}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                type="button"
+                disabled={item.remaining <= 0 || dispenseMutation.isPending}
+                onClick={() =>
+                  dispenseMutation.mutate({
+                    itemId: item.id,
+                    overrideBatchId: overrideBatch[item.id] || undefined,
+                  })
+                }
+              >
+                {item.remaining <= 0 ? "Fully dispensed" : "Dispense remaining"}
+              </Button>
+            </div>
+          ))
+        )}
+      </ActionDrawer>
     </PageEnter>
   );
 }

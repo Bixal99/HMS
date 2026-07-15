@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ListSkeleton } from "@/components/shared/ListSkeleton";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { cn } from "@/lib/utils";
 
 type InventoryBoardProps = {
@@ -36,7 +38,7 @@ export function InventoryBoard({ role, departmentId }: InventoryBoardProps) {
     [viewAll, departmentId],
   );
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, isError, refetch } = useQuery({
     queryKey,
     queryFn: () => {
       const params = new URLSearchParams();
@@ -187,15 +189,9 @@ export function InventoryBoard({ role, departmentId }: InventoryBoardProps) {
       )}
 
       {isLoading ? (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-14 animate-shimmer rounded-lg bg-muted" />
-          ))}
-        </div>
-      ) : error ? (
-        <p className="text-sm text-destructive">
-          {(error as Error).message || "Failed to load inventory"}
-        </p>
+        <ListSkeleton rows={4} label="Loading inventory…" />
+      ) : isError ? (
+        <QueryErrorState error={error} onRetry={() => void refetch()} />
       ) : items.length === 0 ? (
         <EmptyState
           title="No inventory items"

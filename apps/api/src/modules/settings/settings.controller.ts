@@ -3,21 +3,26 @@ import {
   changeOwnPassword,
   changeUserRole,
   createDepartment,
+  createSpecialty,
   getAllSettings,
   getPublicSettings,
   getUserMe,
   listDepartments,
+  listSpecialties,
   listUsers,
   setUserActive,
   updateDepartment,
+  updateSpecialty,
   updateSetting,
   updateUserMe,
 } from "./settings.service";
 import {
   changePasswordSchema,
   createDepartmentSchema,
+  createSpecialtySchema,
   settingKeySchema,
   updateDepartmentSchema,
+  updateSpecialtySchema,
   updateMeSchema,
   updateSettingBodySchema,
   userRoleSchema,
@@ -81,6 +86,33 @@ export async function updateDepartmentHandler(req: Request, res: Response) {
     return res.json({ data });
   } catch {
     return res.status(404).json({ error: "Department not found" });
+  }
+}
+
+export async function listSpecialtiesHandler(_req: Request, res: Response) {
+  const data = await listSpecialties();
+  return res.json({ data });
+}
+
+export async function createSpecialtyHandler(req: Request, res: Response) {
+  const parsed = createSpecialtySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid body" });
+  try {
+    const data = await createSpecialty(parsed.data);
+    return res.status(201).json({ data });
+  } catch {
+    return res.status(409).json({ error: "Specialty name already exists" });
+  }
+}
+
+export async function updateSpecialtyHandler(req: Request, res: Response) {
+  const parsed = updateSpecialtySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid body" });
+  try {
+    const data = await updateSpecialty(String(req.params.id), parsed.data);
+    return res.json({ data });
+  } catch {
+    return res.status(404).json({ error: "Specialty not found" });
   }
 }
 

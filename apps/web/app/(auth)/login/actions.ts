@@ -69,6 +69,14 @@ export async function loginAction(input: unknown): Promise<LoginResult> {
     const sessionToken = await createDatabaseSession(user.id, maxAgeMs);
     await setSessionCookie(sessionToken, { rememberMe, maxAgeMs });
 
+    if (user.mustChangePassword) {
+      return {
+        ok: true,
+        role: user.role,
+        redirectTo: "/change-password",
+      };
+    }
+
     return {
       ok: true,
       role: user.role,

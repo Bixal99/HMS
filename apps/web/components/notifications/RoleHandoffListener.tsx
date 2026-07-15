@@ -58,6 +58,39 @@ export function RoleHandoffListener({ role }: RoleHandoffListenerProps) {
         },
       );
       socket.on(
+        "appointment:confirmed",
+        (payload: {
+          doctorId?: string;
+          scheduledAt?: string;
+          patient?: { firstName?: string; lastName?: string; mrn?: string };
+        }) => {
+          if (staffId && payload.doctorId && payload.doctorId !== staffId) return;
+          const name = payload.patient
+            ? `${payload.patient.firstName ?? ""} ${payload.patient.lastName ?? ""}`.trim()
+            : "A patient";
+          const mrn = payload.patient?.mrn ? ` · ${payload.patient.mrn}` : "";
+          const when = payload.scheduledAt
+            ? new Date(payload.scheduledAt).toLocaleString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })
+            : null;
+          toast.success(
+            when
+              ? `Confirmed: ${name || "Patient"}${mrn} · ${when}`
+              : `Confirmed: ${name || "Patient"}${mrn}`,
+            {
+              action: { label: "Open queue", onClick: go("/appointments/queue") },
+              duration: 10_000,
+            },
+          );
+          invalidate("queue");
+        },
+      );
+      socket.on(
         "appointment:checked_in",
         (payload: {
           doctorId?: string;
@@ -271,6 +304,69 @@ export function RoleHandoffListener({ role }: RoleHandoffListenerProps) {
 
     if (role === "RECEPTIONIST" || role === "ADMIN") {
       socket.on(
+        "appointment:pending",
+        (payload: {
+          scheduledAt?: string;
+          patient?: { firstName?: string; lastName?: string; mrn?: string };
+          doctor?: { user?: { name?: string | null } };
+        }) => {
+          const name = payload.patient
+            ? `${payload.patient.firstName ?? ""} ${payload.patient.lastName ?? ""}`.trim()
+            : "A patient";
+          const doctor = payload.doctor?.user?.name?.trim();
+          const when = payload.scheduledAt
+            ? new Date(payload.scheduledAt).toLocaleString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })
+            : null;
+          toast.info(
+            [name || "Patient", doctor, when].filter(Boolean).join(" · "),
+            {
+              action: {
+                label: "Review",
+                onClick: go("/appointments/pending"),
+              },
+              duration: 12_000,
+            },
+          );
+          invalidate("pending-appointments", "appointment-pending-counts");
+        },
+      );
+      socket.on(
+        "appointment:confirmed",
+        (payload: {
+          scheduledAt?: string;
+          patient?: { firstName?: string; lastName?: string; mrn?: string };
+          doctor?: { user?: { name?: string | null } };
+        }) => {
+          const name = payload.patient
+            ? `${payload.patient.firstName ?? ""} ${payload.patient.lastName ?? ""}`.trim()
+            : "A patient";
+          const doctor = payload.doctor?.user?.name?.trim();
+          const when = payload.scheduledAt
+            ? new Date(payload.scheduledAt).toLocaleString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })
+            : null;
+          toast.success(
+            `Confirmed: ${[name || "Patient", doctor, when].filter(Boolean).join(" · ")}`,
+            {
+              action: { label: "Queue", onClick: go("/appointments/queue") },
+              duration: 10_000,
+            },
+          );
+          invalidate("pending-appointments", "queue", "appointment-pending-counts");
+        },
+      );
+      socket.on(
         "appointment:cancelled",
         (payload: {
           patient?: { firstName?: string; lastName?: string };
@@ -358,13 +454,44 @@ export function RoleHandoffListener({ role }: RoleHandoffListenerProps) {
 
     if (role === "PATIENT") {
       // pending / self-book: success page + inbox only (no duplicate socket toast)
-      socket.on("appointment:confirmed", () => {
-        toast.success("Appointment confirmed", {
-          action: { label: "View", onClick: go("/portal/appointments") },
-          duration: 8_000,
-        });
-        invalidate("appointments-mine", "appointments-mine-pending");
-      });
+      socket.on(
+        "appointment:confirmed",
+        (payload: {
+          id?: string;
+          scheduledAt?: string;
+          doctor?: { user?: { name?: string | null } };
+          patient?: { firstName?: string; lastName?: string };
+        }) => {
+          const doctor =
+            payload.doctor?.user?.name?.trim() || "your doctor";
+          const when = payload.scheduledAt
+            ? new Date(payload.scheduledAt).toLocaleString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })
+            : null;
+          toast.success(
+            when
+              ? `Appointment confirmed with ${doctor} · ${when}`
+              : `Appointment confirmed with ${doctor}`,
+            {
+              action: {
+                label: "View",
+                onClick: go(
+                  payload.id
+                    ? `/portal/appointments/${payload.id}`
+                    : "/portal/appointments",
+                ),
+              },
+              duration: 8_000,
+            },
+          );
+          invalidate("appointments-mine", "appointments-mine-pending");
+        },
+      );
       socket.on("appointment:rejected", () => {
         toast.message("Appointment unavailable", {
           action: { label: "Appointments", onClick: go("/portal/appointments") },

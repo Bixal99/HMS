@@ -4,13 +4,18 @@ import { resolveStaffId } from "../appointments/appointments.service";
 import {
   BedUnavailableError,
   admitPatient,
+  createBed,
+  createWard,
   dischargePatient,
   getAdmission,
   getDischargeChecklist,
   getOccupancy,
   getWardBeds,
+  listWardStructure,
   transferBed,
+  updateBed,
   updateBedStatus,
+  updateWard,
 } from "./admissions.service";
 import {
   createNursingNote,
@@ -25,10 +30,14 @@ import {
   admitSchema,
   bedStatusSchema,
   carePlanSchema,
+  createBedSchema,
+  createWardSchema,
   dischargeSchema,
   medicationAdminSchema,
   nursingNoteSchema,
   transferSchema,
+  updateBedSchema,
+  updateWardSchema,
 } from "./wards.validators";
 
 function paramId(req: Request, key = "id"): string {
@@ -39,6 +48,59 @@ function paramId(req: Request, key = "id"): string {
 export async function occupancyHandler(_req: Request, res: Response) {
   const data = await getOccupancy();
   return res.json({ data });
+}
+
+export async function structureHandler(_req: Request, res: Response) {
+  const data = await listWardStructure();
+  return res.json({ data });
+}
+
+export async function createWardHandler(req: Request, res: Response) {
+  const parsed = createWardSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  const data = await createWard(parsed.data);
+  return res.status(201).json({ data });
+}
+
+export async function updateWardHandler(req: Request, res: Response) {
+  const parsed = updateWardSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  try {
+    const data = await updateWard(paramId(req), parsed.data);
+    return res.json({ data });
+  } catch {
+    return res.status(404).json({ error: "Ward not found" });
+  }
+}
+
+export async function createBedHandler(req: Request, res: Response) {
+  const parsed = createBedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  try {
+    const data = await createBed(parsed.data);
+    return res.status(201).json({ data });
+  } catch {
+    return res.status(409).json({ error: "Bed number may already exist in this ward" });
+  }
+}
+
+export async function updateBedHandler(req: Request, res: Response) {
+  const parsed = updateBedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  try {
+    const data = await updateBed(paramId(req, "bedId"), parsed.data);
+    return res.json({ data });
+  } catch {
+    return res.status(404).json({ error: "Bed not found" });
+  }
 }
 
 export async function wardBedsHandler(req: Request, res: Response) {

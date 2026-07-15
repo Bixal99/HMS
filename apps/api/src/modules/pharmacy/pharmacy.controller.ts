@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { parseISO } from "date-fns";
 import { emitPharmacyStockUnavailable } from "../../lib/socket";
 import {
+  createMedicine,
   createPurchaseOrder,
   countPendingPharmacyQueue,
   dispensePrescriptionItem,
@@ -16,14 +17,17 @@ import {
   listPurchaseOrders,
   listSuppliers,
   receivePurchaseOrder,
+  updateMedicine,
   updatePharmacyStage,
 } from "./pharmacy.service";
 import { resolvePatientId } from "../appointments/appointments.service";
 import {
+  createMedicineSchema,
   createPoSchema,
   dispenseSchema,
   receivePoSchema,
   stageSchema,
+  updateMedicineSchema,
 } from "./pharmacy.validators";
 
 function paramId(req: Request, key = "id"): string {
@@ -34,6 +38,28 @@ function paramId(req: Request, key = "id"): string {
 export async function listMedicinesHandler(_req: Request, res: Response) {
   const data = await listMedicinesWithStock();
   return res.json({ data });
+}
+
+export async function createMedicineHandler(req: Request, res: Response) {
+  const parsed = createMedicineSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  const data = await createMedicine(parsed.data);
+  return res.status(201).json({ data });
+}
+
+export async function updateMedicineHandler(req: Request, res: Response) {
+  const parsed = updateMedicineSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+  }
+  try {
+    const data = await updateMedicine(paramId(req), parsed.data);
+    return res.json({ data });
+  } catch {
+    return res.status(404).json({ error: "Medicine not found" });
+  }
 }
 
 export async function queueHandler(_req: Request, res: Response) {

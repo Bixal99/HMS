@@ -3,6 +3,7 @@ type SessionUser = {
   email: string;
   role: string;
   isActive: boolean;
+  mustChangePassword?: boolean;
   passwordHash?: string;
   name?: string | null;
 };

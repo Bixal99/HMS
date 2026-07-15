@@ -1,8 +1,10 @@
 "use client";
 
+import { Suspense } from "react";
 import { AccountSettingsForm } from "@/components/settings/AccountSettingsForm";
 import { SettingsTabs } from "@/components/settings/SettingsTabs";
 import { PageEnter } from "@/components/shared/PageEnter";
+import { InlineLoader } from "@/components/shared/InlineLoader";
 
 export function SettingsPageClient({ role }: { role: string }) {
   const isAdmin = role === "ADMIN";
@@ -33,7 +35,9 @@ export function SettingsPageClient({ role }: { role: string }) {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Hospital
             </h2>
-            <SettingsTabs embedded />
+            <Suspense fallback={<InlineLoader label="Loading hospital settings…" />}>
+              <SettingsTabs embedded />
+            </Suspense>
           </section>
         ) : null}
       </div>

@@ -43,7 +43,10 @@ export async function boardHandler(_req: Request, res: Response) {
 export async function scheduleHandler(req: Request, res: Response) {
   const parsed = scheduleSurgerySchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid body" });
+    const msg =
+      parsed.error.issues[0]?.message ??
+      "Invalid schedule — check room, surgeon, start, and end";
+    return res.status(400).json({ error: msg });
   }
 
   const request = await scheduleSurgeryRequest(paramId(req), parsed.data);

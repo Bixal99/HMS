@@ -20,6 +20,7 @@ export const { handlers, auth, signOut } = NextAuth({
         session.user.id = user.id;
         const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
         session.user.role = dbUser?.role ?? "PATIENT";
+        session.user.mustChangePassword = dbUser?.mustChangePassword ?? false;
       }
       return session;
     },

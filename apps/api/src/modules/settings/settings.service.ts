@@ -117,6 +117,39 @@ export async function updateDepartment(
   });
 }
 
+export async function listSpecialties() {
+  return prisma.specialty.findMany({
+    orderBy: { name: "asc" },
+  });
+}
+
+export async function createSpecialty(input: {
+  name: string;
+  description?: string | null;
+}) {
+  return prisma.specialty.create({
+    data: {
+      name: input.name,
+      description: input.description ?? null,
+    },
+  });
+}
+
+export async function updateSpecialty(
+  id: string,
+  input: { name?: string; description?: string | null },
+) {
+  return prisma.specialty.update({
+    where: { id },
+    data: {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+    },
+  });
+}
+
 export async function listUsers() {
   return prisma.user.findMany({
     where: { role: { not: "PATIENT" } },
@@ -214,7 +247,7 @@ export async function changeOwnPassword(
   const passwordHash = await bcrypt.hash(newPassword, 12);
   await prisma.user.update({
     where: { id: userId },
-    data: { passwordHash },
+    data: { passwordHash, mustChangePassword: false },
   });
   return { ok: true };
 }

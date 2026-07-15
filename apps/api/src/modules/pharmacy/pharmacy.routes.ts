@@ -4,6 +4,7 @@ import { authorize } from "../../middleware/authorize";
 import {
   alertsCountHandler,
   alertsHandler,
+  createMedicineHandler,
   createPoHandler,
   dispenseHandler,
   listMedicinesHandler,
@@ -15,6 +16,7 @@ import {
   receivePoHandler,
   stageHandler,
   suppliersHandler,
+  updateMedicineHandler,
 } from "./pharmacy.controller";
 
 const router = Router();
@@ -26,6 +28,8 @@ router.get(
   authorize("PHARMACIST", "DOCTOR", "ADMIN"),
   listMedicinesHandler,
 );
+router.post("/medicines", authorize("ADMIN"), createMedicineHandler);
+router.patch("/medicines/:id", authorize("ADMIN"), updateMedicineHandler);
 
 router.get(
   "/prescriptions/mine",

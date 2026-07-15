@@ -9,6 +9,62 @@ export async function listCatalog() {
   return prisma.labTestCatalog.findMany({ orderBy: [{ category: "asc" }, { name: "asc" }] });
 }
 
+export async function createCatalogEntry(input: {
+  name: string;
+  category: string;
+  priceCents: number;
+  sampleType: string;
+  turnaroundHours: number;
+  resultType: "NUMERIC" | "TEXT" | "FILE";
+  unit?: string | null;
+  referenceLow?: number | null;
+  referenceHigh?: number | null;
+  criticalLow?: number | null;
+  criticalHigh?: number | null;
+}) {
+  return prisma.labTestCatalog.create({
+    data: {
+      name: input.name,
+      category: input.category,
+      priceCents: input.priceCents,
+      sampleType: input.sampleType,
+      turnaroundHours: input.turnaroundHours,
+      resultType: input.resultType,
+      unit: input.resultType === "NUMERIC" ? (input.unit ?? null) : null,
+      referenceLow:
+        input.resultType === "NUMERIC" ? (input.referenceLow ?? null) : null,
+      referenceHigh:
+        input.resultType === "NUMERIC" ? (input.referenceHigh ?? null) : null,
+      criticalLow:
+        input.resultType === "NUMERIC" ? (input.criticalLow ?? null) : null,
+      criticalHigh:
+        input.resultType === "NUMERIC" ? (input.criticalHigh ?? null) : null,
+    },
+  });
+}
+
+export async function updateCatalogEntry(
+  id: string,
+  input: Partial<{
+    name: string;
+    category: string;
+    priceCents: number;
+    sampleType: string;
+    turnaroundHours: number;
+    resultType: "NUMERIC" | "TEXT" | "FILE";
+    unit: string | null;
+    referenceLow: number | null;
+    referenceHigh: number | null;
+    criticalLow: number | null;
+    criticalHigh: number | null;
+  }>,
+) {
+  return prisma.labTestCatalog.update({
+    where: { id },
+    data: input,
+  });
+}
+
 export async function createLabOrder(input: {
   encounterId: string;
   testIds: string[];

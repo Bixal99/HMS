@@ -4,12 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { API_BASE, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { ActionDrawer } from "@/components/shared/ActionDrawer";
 
 type ExportDialogProps = {
   reportType: "operational" | "financial" | "clinical";
@@ -70,38 +65,47 @@ export function ExportDialog({ reportType, start, end }: ExportDialogProps) {
       >
         Export
       </Button>
-      <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerContent className="max-h-[90vh] w-[min(24rem,94vw)]">
-          <DrawerHeader>
-            <DrawerTitle>Export {reportType} report</DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-3 px-4 pb-6">
-            <p className="text-sm text-muted-foreground">
-              Downloads the current date range ({start} → {end}) and records a
-              snapshot.
-            </p>
-            <Button
-              type="button"
-              className="w-full"
-              disabled={pending !== null}
-              suppressHydrationWarning
-              onClick={() => void download("csv")}
-            >
-              {pending === "csv" ? "Preparing…" : "Download CSV"}
-            </Button>
-            <Button
-              type="button"
-              className="w-full"
-              variant="outline"
-              disabled={pending !== null}
-              suppressHydrationWarning
-              onClick={() => void download("pdf")}
-            >
-              {pending === "pdf" ? "Preparing…" : "Download PDF"}
-            </Button>
-          </div>
-        </DrawerContent>
-      </Drawer>
+      <ActionDrawer
+        open={open}
+        onOpenChange={setOpen}
+        title={`Export ${reportType} report`}
+        widthClass="w-[min(24rem,94vw)]"
+        footer={
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => setOpen(false)}
+            disabled={pending !== null}
+          >
+            Cancel
+          </Button>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          Downloads the current date range ({start} → {end}) and records a
+          snapshot.
+        </p>
+        <Button
+          type="button"
+          className="w-full"
+          disabled={pending !== null}
+          suppressHydrationWarning
+          onClick={() => void download("csv")}
+        >
+          {pending === "csv" ? "Preparing…" : "Download CSV"}
+        </Button>
+        <Button
+          type="button"
+          className="w-full"
+          variant="outline"
+          disabled={pending !== null}
+          suppressHydrationWarning
+          onClick={() => void download("pdf")}
+        >
+          {pending === "pdf" ? "Preparing…" : "Download PDF"}
+        </Button>
+      </ActionDrawer>
     </>
   );
 }

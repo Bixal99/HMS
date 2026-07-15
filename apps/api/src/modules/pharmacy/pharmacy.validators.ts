@@ -39,3 +39,14 @@ export const receivePoSchema = z.object({
     )
     .min(1),
 });
+
+export const createMedicineSchema = z.object({
+  name: z.string().min(1).max(200),
+  genericName: z.string().max(200).optional().nullable(),
+  form: z.string().min(1).max(80),
+  strength: z.string().min(1).max(80),
+  reorderThreshold: z.number().int().min(0).default(10),
+  sellingPriceCents: z.number().int().min(0),
+});
+
+export const updateMedicineSchema = createMedicineSchema.partial();

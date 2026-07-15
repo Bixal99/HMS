@@ -95,28 +95,28 @@ export function DepartmentsCarousel() {
           <div className="flex gap-4">
             {isLoading
               ? Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="min-w-0 flex-[0_0_85%] animate-shimmer rounded-xl bg-muted sm:flex-[0_0_45%] lg:flex-[0_0_30%]"
-                    style={{ height: 140 }}
-                  />
-                ))
+                <div
+                  key={i}
+                  className="min-w-0 flex-[0_0_85%] animate-shimmer rounded-xl bg-muted sm:flex-[0_0_45%] lg:flex-[0_0_30%]"
+                  style={{ height: 140 }}
+                />
+              ))
               : items.map((d, i) => (
-                  <article
-                    key={d.id}
-                    className="mkt-carousel-card min-w-0 flex-[0_0_85%] sm:flex-[0_0_45%] lg:flex-[0_0_30%]"
-                  >
-                    <p className="mkt-service-index__num" aria-hidden>
-                      {String(i + 1).padStart(2, "0")}
-                    </p>
-                    <h3 className="mt-3 font-semibold text-foreground">
-                      {d.name}
-                    </h3>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {d.description || "Specialty care within MediCore."}
-                    </p>
-                  </article>
-                ))}
+                <article
+                  key={d.id}
+                  className="mkt-carousel-card min-w-0 flex-[0_0_85%] sm:flex-[0_0_45%] lg:flex-[0_0_30%]"
+                >
+                  <p className="mkt-service-index__num" aria-hidden>
+                    {String(i + 1).padStart(2, "0")}
+                  </p>
+                  <h3 className="mt-3 font-semibold text-foreground">
+                    {d.name}
+                  </h3>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {d.description || "Specialty care within MediCore."}
+                  </p>
+                </article>
+              ))}
           </div>
         </div>
       </div>

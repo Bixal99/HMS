@@ -13,6 +13,8 @@ import { apiFetch, ApiError } from "@/lib/api";
 import type { InventoryItem } from "@/lib/inventory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ListSkeleton } from "@/components/shared/ListSkeleton";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { cn } from "@/lib/utils";
 
 type RowState = InventoryItem & { countedStock: number };
@@ -23,7 +25,7 @@ export function ReconcileGrid() {
   const qc = useQueryClient();
   const [rows, setRows] = useState<RowState[] | null>(null);
 
-  const { isLoading, refetch } = useQuery({
+  const { isLoading, isError, error, refetch } = useQuery({
     queryKey: ["inventory", "all"],
     queryFn: async () => {
       const res = await apiFetch<{ data: InventoryItem[] }>("/api/inventory?all=1");
@@ -131,7 +133,10 @@ export function ReconcileGrid() {
   });
 
   if (isLoading || !rows) {
-    return <p className="text-sm text-muted-foreground">Loading inventory…</p>;
+    return <ListSkeleton rows={5} label="Loading inventory…" />;
+  }
+  if (isError) {
+    return <QueryErrorState error={error} onRetry={() => void refetch()} />;
   }
 
   return (

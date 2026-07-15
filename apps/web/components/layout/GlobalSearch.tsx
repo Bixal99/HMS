@@ -8,6 +8,7 @@ import { Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import type { PatientListResponse } from "@/lib/patients";
 import type { NavGroup } from "@/components/layout/AppShell";
+import { SearchSpinner, isTypeaheadBusy } from "@/components/shared/SearchInput";
 import { cn } from "@/lib/utils";
 
 const PATIENT_SEARCH_ROLES = new Set([
@@ -71,7 +72,7 @@ export function GlobalSearch({ role, navGroups, className }: GlobalSearchProps) 
 
   const patientsQ = useQuery({
     queryKey: ["global-search-patients", debounced],
-    enabled: canSearchPatients && open && debounced.length >= 2,
+    enabled: canSearchPatients && open && debounced.length >= 1,
     queryFn: () => {
       const params = new URLSearchParams({
         page: "1",
@@ -84,7 +85,7 @@ export function GlobalSearch({ role, navGroups, className }: GlobalSearchProps) 
 
   const portalQ = useQuery({
     queryKey: ["portal-search", debounced],
-    enabled: isPatientPortal && open,
+    enabled: isPatientPortal && open && debounced.length >= 0,
     queryFn: () =>
       apiFetch<{ data: PortalSearchData }>(
         `/api/portal/search?q=${encodeURIComponent(debounced)}`,
@@ -93,6 +94,12 @@ export function GlobalSearch({ role, navGroups, className }: GlobalSearchProps) 
 
   const patients = patientsQ.data?.data ?? [];
   const portal = portalQ.data?.data;
+  const searching = isTypeaheadBusy(query, {
+    debounced,
+    isFetching:
+      (canSearchPatients && patientsQ.isFetching) ||
+      (isPatientPortal && portalQ.isFetching),
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -144,13 +151,27 @@ export function GlobalSearch({ role, navGroups, className }: GlobalSearchProps) 
         placeholder={isPatientPortal ? "Search your care…" : "Search…"}
         aria-label="Search"
         aria-expanded={showPanel}
+        aria-busy={searching || undefined}
         aria-controls="global-search-results"
         autoComplete="off"
-        className="h-9 w-52 rounded-md border border-input bg-background pl-8 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:w-64"
+        className={cn(
+          "h-9 w-52 rounded-md border border-input bg-background pl-8 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:w-64",
+          searching ? "pr-9" : "pr-10",
+        )}
       />
-      <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-block">
-        ⌘K
-      </kbd>
+      {searching ? (
+        <span
+          className="pointer-events-none absolute right-2.5 top-1/2 z-10 -translate-y-1/2"
+          role="status"
+          aria-label="Searching"
+        >
+          <SearchSpinner />
+        </span>
+      ) : (
+        <kbd className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-block">
+          ⌘K
+        </kbd>
+      )}
 
       {showPanel ? (
         <div
@@ -254,25 +275,38 @@ export function GlobalSearch({ role, navGroups, className }: GlobalSearchProps) 
                     </button>
                   ))
                 )}
-                {canSearchPatients && debounced.length >= 2 ? (
+                {canSearchPatients && query.trim().length >= 1 ? (
                   <>
                     <div className="my-1 h-px bg-border" />
                     <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Patients
                     </p>
-                    {patients.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className="flex w-full flex-col gap-0.5 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
-                        onClick={() => go(`/patients/${p.id}`)}
-                      >
-                        <span className="font-medium">
-                          {p.firstName} {p.lastName}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">MRN {p.mrn}</span>
-                      </button>
-                    ))}
+                    {patientsQ.isFetching && patients.length === 0 ? (
+                      <p className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground">
+                        <SearchSpinner />
+                        Searching…
+                      </p>
+                    ) : patients.length === 0 ? (
+                      <p className="px-2 py-2 text-sm text-muted-foreground">
+                        No patients matched
+                      </p>
+                    ) : (
+                      patients.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className="flex w-full flex-col gap-0.5 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+                          onClick={() => go(`/patients/${p.id}`)}
+                        >
+                          <span className="font-medium">
+                            {p.firstName} {p.lastName}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            MRN {p.mrn}
+                          </span>
+                        </button>
+                      ))
+                    )}
                   </>
                 ) : null}
               </>

@@ -43,16 +43,17 @@ enum BloodGroup {
 }
 
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String
-  role          Role
-  name          String?
-  emailVerified DateTime?
-  image         String?
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  passwordHash       String
+  role               Role
+  name               String?
+  emailVerified      DateTime?
+  image              String?
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   patient  Patient?
   staff    Staff?
@@ -126,18 +127,36 @@ model Department {
   symptomCategories SymptomCategory[]
 }
 
-model Staff {
-  id             String   @id @default(uuid())
-  userId         String   @unique
-  employeeCode   String   @unique
-  departmentId   String
-  designation    String
-  specialization String?
-  dateJoined     DateTime @default(now())
-  isActive       Boolean  @default(true)
+model Specialty {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
 
-  user           User                 @relation(fields: [userId], references: [id])
-  department     Department           @relation(fields: [departmentId], references: [id])
+  staff Staff[]
+}
+
+model Staff {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  employeeCode         String   @unique
+  departmentId         String
+  designation          String
+  specialization       String?
+  specialtyId          String?
+  licenseNumber        String?
+  qualification        String?
+  experienceYears      Int?
+  consultationRoom     String?
+  consultationFeeCents Int?
+  wardId               String?
+  shiftPattern         String?
+  dateJoined           DateTime @default(now())
+  isActive             Boolean  @default(true)
+
+  user           User                  @relation(fields: [userId], references: [id])
+  department     Department            @relation(fields: [departmentId], references: [id])
+  specialty      Specialty?            @relation(fields: [specialtyId], references: [id])
+  ward           Ward?                 @relation(fields: [wardId], references: [id])
   availability   StaffAvailability[]
   leaveRequests  StaffLeaveRequest[]
   appointments   Appointment[]
@@ -702,6 +721,7 @@ model Ward {
 
   department Department @relation(fields: [departmentId], references: [id])
   beds       Bed[]
+  staff      Staff[]
 }
 
 model Bed {

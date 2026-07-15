@@ -109,7 +109,8 @@ export async function bookAppointment(input: {
 }) {
   const holdHours = await pendingHoldHours();
 
-  return prisma.$transaction(async (tx) => {
+  return prisma.$transaction(
+    async (tx) => {
     let reasonForVisit = input.reasonForVisit ?? null;
     let priority: AppointmentPriority = input.priority ?? "NORMAL";
     let intake: {
@@ -149,6 +150,51 @@ export async function bookAppointment(input: {
     const source: AppointmentSource =
       input.appointmentSource ??
       (isPatient ? "PATIENT_PORTAL" : "RECEPTION");
+
+    if (input.scheduledAt.getTime() <= Date.now()) {
+      throw new Error("SLOT_IN_PAST");
+    }
+
+    // Serialize concurrent books for the same doctor+time (double-click / race).
+    const clash = await tx.appointment.findFirst({
+      where: {
+        doctorId: input.doctorId,
+        scheduledAt: input.scheduledAt,
+        status: { in: BLOCKING_STATUSES },
+      },
+      select: { id: true },
+    });
+    if (clash) throw new Error("SLOT_ALREADY_TAKEN");
+
+    // Same patient + doctor cannot hold multiple open visits on the same day.
+    const dayStart = startOfDay(input.scheduledAt);
+    const dayEnd = addMinutes(dayStart, 24 * 60);
+    const sameDay = await tx.appointment.findFirst({
+      where: {
+        patientId: input.patientId,
+        doctorId: input.doctorId,
+        status: { in: BLOCKING_STATUSES },
+        scheduledAt: { gte: dayStart, lt: dayEnd },
+      },
+      select: { id: true, scheduledAt: true },
+    });
+    if (sameDay) throw new Error("PATIENT_ALREADY_BOOKED");
+
+    // Also block same patient booking overlapping ±1 minute of an existing hold
+    // (guards timezone/ISO drift that can miss exact slot collisions).
+    const nearClash = await tx.appointment.findFirst({
+      where: {
+        patientId: input.patientId,
+        doctorId: input.doctorId,
+        status: { in: BLOCKING_STATUSES },
+        scheduledAt: {
+          gte: addMinutes(input.scheduledAt, -1),
+          lte: addMinutes(input.scheduledAt, 1),
+        },
+      },
+      select: { id: true },
+    });
+    if (nearClash) throw new Error("SLOT_ALREADY_TAKEN");
 
     const appointment = await tx.appointment.create({
       data: {
@@ -196,7 +242,9 @@ export async function bookAppointment(input: {
     }
 
     return appointment;
-  });
+  },
+  { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
 }
 
 export async function getAppointmentById(id: string) {

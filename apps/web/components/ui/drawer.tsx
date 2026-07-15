@@ -5,11 +5,15 @@ import { cn } from "@/lib/utils";
 
 type DrawerDirection = "left" | "right";
 
+/**
+ * App drawers open from the right by default (detail/action panels).
+ * Pass direction/side "left" only for nav menus (AppShell / MarketingNav).
+ */
 export function Drawer({
   open,
   onOpenChange,
   children,
-  direction = "left",
+  direction = "right",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -28,7 +32,7 @@ export const DrawerTrigger = VaulDrawer.Trigger;
 export function DrawerContent({
   className,
   children,
-  side = "left",
+  side = "right",
 }: {
   className?: string;
   children: React.ReactNode;
@@ -39,7 +43,7 @@ export function DrawerContent({
       <VaulDrawer.Overlay className="fixed inset-0 z-40 bg-foreground/40 transition-opacity" />
       <VaulDrawer.Content
         className={cn(
-          "fixed bottom-0 top-0 z-50 flex flex-col border-border bg-background outline-none",
+          "fixed bottom-0 top-0 z-50 flex min-w-0 flex-col overflow-x-hidden border-border bg-background outline-none",
           side === "right"
             ? "right-0 border-l w-[min(18rem,85vw)]"
             : "left-0 border-r w-[min(18rem,85vw)]",

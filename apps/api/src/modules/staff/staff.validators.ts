@@ -1,23 +1,54 @@
 import { z } from "zod";
 
-export const createStaffSchema = z.object({
+const baseFields = {
   email: z.string().email(),
-  password: z.string().min(8),
   name: z.string().min(1),
-  role: z.enum([
-    "ADMIN",
-    "DOCTOR",
-    "NURSE",
-    "RECEPTIONIST",
-    "PHARMACIST",
-    "LAB_TECHNICIAN",
-    "BILLING_OFFICER",
-  ]),
   employeeCode: z.string().min(1),
   departmentId: z.string().uuid(),
   designation: z.string().min(1),
-  specialization: z.string().optional().or(z.literal("")),
-});
+};
+
+export const createStaffSchema = z.discriminatedUnion("role", [
+  z.object({
+    role: z.literal("DOCTOR"),
+    ...baseFields,
+    specialtyId: z.string().uuid(),
+    licenseNumber: z.string().min(1),
+    qualification: z.string().min(1),
+    experienceYears: z.number().int().positive(),
+    consultationRoom: z.string().optional(),
+    consultationFeeCents: z.number().int().positive().optional(),
+  }),
+  z.object({
+    role: z.literal("NURSE"),
+    ...baseFields,
+    wardId: z.string().uuid(),
+    shiftPattern: z.string().min(1),
+  }),
+  z.object({
+    role: z.literal("RECEPTIONIST"),
+    ...baseFields,
+    shiftPattern: z.string().min(1),
+  }),
+  z.object({
+    role: z.literal("PHARMACIST"),
+    ...baseFields,
+    licenseNumber: z.string().min(1),
+  }),
+  z.object({
+    role: z.literal("LAB_TECHNICIAN"),
+    ...baseFields,
+    qualification: z.string().min(1),
+  }),
+  z.object({
+    role: z.literal("BILLING_OFFICER"),
+    ...baseFields,
+  }),
+  z.object({
+    role: z.literal("ADMIN"),
+    ...baseFields,
+  }),
+]);
 
 export const availabilityBlockSchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
@@ -43,4 +74,5 @@ export const patchLeaveSchema = z.object({
 export const listStaffQuerySchema = z.object({
   departmentId: z.string().uuid().optional(),
   specialization: z.string().optional(),
+  specialtyId: z.string().uuid().optional(),
 });

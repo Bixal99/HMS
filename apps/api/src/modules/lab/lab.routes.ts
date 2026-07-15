@@ -4,12 +4,14 @@ import { authorize } from "../../middleware/authorize";
 import {
   catalogHandler,
   collectHandler,
+  createCatalogHandler,
   createOrderHandler,
   orderDetailHandler,
   queueCountHandler,
   queueHandler,
   stageHandler,
   submitResultHandler,
+  updateCatalogHandler,
   verifyHandler,
 } from "./lab.controller";
 import { labResultUpload } from "./lab.upload";
@@ -22,6 +24,16 @@ router.get(
   "/catalog",
   authorize("DOCTOR", "LAB_TECHNICIAN", "ADMIN"),
   catalogHandler,
+);
+router.post(
+  "/catalog",
+  authorize("ADMIN", "LAB_TECHNICIAN"),
+  createCatalogHandler,
+);
+router.patch(
+  "/catalog/:id",
+  authorize("ADMIN", "LAB_TECHNICIAN"),
+  updateCatalogHandler,
 );
 
 router.post("/orders", authorize("DOCTOR"), createOrderHandler);

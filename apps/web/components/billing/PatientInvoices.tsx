@@ -8,6 +8,8 @@ import { apiFetch } from "@/lib/api";
 import { formatCents, type InvoiceListRow } from "@/lib/billing";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 const PREVIEW = 3;
 
@@ -35,11 +37,13 @@ export function PatientInvoices() {
           Settle open balances at the billing desk.
         </p>
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <InlineLoader label="Loading invoices…" />
         ) : rows.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted-foreground">
-            No invoices yet
-          </p>
+          <EmptyState
+            className="py-6"
+            title="No invoices yet"
+            description="Bills from your visits will appear here."
+          />
         ) : (
           <>
             <ul className="space-y-1.5">

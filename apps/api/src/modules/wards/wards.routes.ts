@@ -5,7 +5,9 @@ import {
   activeAdmissionsHandler,
   admitHandler,
   checklistHandler,
+  createBedHandler,
   createNoteHandler,
+  createWardHandler,
   dischargeHandler,
   getAdmissionHandler,
   listMedicationsHandler,
@@ -15,7 +17,10 @@ import {
   patchBedStatusHandler,
   patchCarePlanHandler,
   recordMedicationHandler,
+  structureHandler,
   transferHandler,
+  updateBedHandler,
+  updateWardHandler,
   wardBedsHandler,
 } from "./wards.controller";
 
@@ -30,6 +35,16 @@ wardsRouter.get(
   authorize("NURSE", "DOCTOR", "ADMIN", "RECEPTIONIST"),
   occupancyHandler,
 );
+
+wardsRouter.get(
+  "/structure",
+  authorize("ADMIN", "NURSE", "RECEPTIONIST"),
+  structureHandler,
+);
+wardsRouter.post("/", authorize("ADMIN"), createWardHandler);
+wardsRouter.patch("/:id", authorize("ADMIN"), updateWardHandler);
+wardsRouter.post("/beds", authorize("ADMIN"), createBedHandler);
+wardsRouter.patch("/beds/:bedId", authorize("ADMIN"), updateBedHandler);
 
 wardsRouter.get(
   "/:id/beds",

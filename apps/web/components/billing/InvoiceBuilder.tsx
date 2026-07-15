@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SearchInput, isTypeaheadBusy } from "@/components/shared/SearchInput";
 
 type PatientOption = {
   id: string;
@@ -22,6 +23,9 @@ export function InvoiceBuilder() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
+  const [selectedPatient, setSelectedPatient] = useState<PatientOption | null>(
+    null,
+  );
   const [draft, setDraft] = useState<InvoiceDetail | null>(null);
   const [desc, setDesc] = useState("");
   const [qty, setQty] = useState("1");
@@ -33,7 +37,7 @@ export function InvoiceBuilder() {
       apiFetch<{ data: PatientOption[] }>(
         `/api/patients?q=${encodeURIComponent(search)}&pageSize=8`,
       ),
-    enabled: search.trim().length >= 2,
+    enabled: !selectedPatient && search.trim().length >= 1,
   });
 
   const generate = useMutation({
@@ -87,14 +91,34 @@ export function InvoiceBuilder() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="patient-search">Search patient</Label>
-            <Input
+            <SearchInput
               id="patient-search"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setSearch(value);
+                if (selectedPatient) {
+                  setSelectedPatient(null);
+                  setPatientId("");
+                }
+              }}
               placeholder="Name, MRN, or phone"
+              isSearching={isTypeaheadBusy(search, {
+                isFetching: patientsQuery.isFetching,
+                isLoading: patientsQuery.isLoading,
+              })}
             />
           </div>
-          {patientsQuery.data?.data?.length ? (
+          {selectedPatient ? (
+            <p className="text-sm text-muted-foreground">
+              Invoicing{" "}
+              <span className="font-medium text-foreground">
+                {selectedPatient.lastName}, {selectedPatient.firstName} ·{" "}
+                {selectedPatient.mrn}
+              </span>
+            </p>
+          ) : null}
+          {!selectedPatient && patientsQuery.data?.data?.length ? (
             <ul className="divide-y divide-border rounded-md border border-border">
               {patientsQuery.data.data.map((p) => (
                 <li
@@ -111,7 +135,9 @@ export function InvoiceBuilder() {
                     size="sm"
                     disabled={generate.isPending}
                     onClick={() => {
+                      setSelectedPatient(p);
                       setPatientId(p.id);
+                      setSearch(`${p.firstName} ${p.lastName}`);
                       generate.mutate(p.id);
                     }}
                   >
@@ -120,7 +146,9 @@ export function InvoiceBuilder() {
                 </li>
               ))}
             </ul>
-          ) : search.trim().length >= 2 && !patientsQuery.isLoading ? (
+          ) : !selectedPatient &&
+            search.trim().length >= 1 &&
+            !patientsQuery.isFetching ? (
             <p className="text-sm text-muted-foreground">No patients found.</p>
           ) : null}
 

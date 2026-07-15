@@ -13,6 +13,9 @@ import { RedFlagLabels } from "@/components/intake/RedFlagScreen";
 import { OrderLabForm } from "@/components/lab/OrderLabForm";
 import { OrderRadiologyForm } from "@/components/radiology/OrderRadiologyForm";
 import { PageEnter } from "@/components/shared/PageEnter";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
+import { SearchInput, isTypeaheadBusy } from "@/components/shared/SearchInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -264,7 +267,7 @@ export function ConsultationWorkspace({
   if (isLoading) {
     return (
       <PageEnter>
-        <p className="text-sm text-muted-foreground">Loading encounter…</p>
+        <InlineLoader label="Loading encounter…" />
       </PageEnter>
     );
   }
@@ -272,9 +275,10 @@ export function ConsultationWorkspace({
   if (error || !encounter) {
     return (
       <PageEnter>
-        <p className="text-sm text-destructive">
-          {error instanceof Error ? error.message : "Encounter not found"}
-        </p>
+        <QueryErrorState
+          error={error ?? new Error("Encounter not found")}
+          title="Couldn’t load encounter"
+        />
       </PageEnter>
     );
   }
@@ -905,7 +909,7 @@ function PrescriptionForm({
   const [notes, setNotes] = useState("");
   const [selectedStock, setSelectedStock] = useState<number | null>(null);
 
-  const { data: meds } = useQuery({
+  const { data: meds, isFetching: medsFetching } = useQuery({
     queryKey: ["medicines", q],
     enabled: q.trim().length >= 1,
     queryFn: () =>
@@ -960,7 +964,7 @@ function PrescriptionForm({
       }}
     >
       <Label htmlFor="med-q">Medicine</Label>
-      <Input
+      <SearchInput
         id="med-q"
         value={q || medicineLabel}
         onChange={(e) => {
@@ -969,6 +973,7 @@ function PrescriptionForm({
           setMedicineLabel("");
         }}
         placeholder="Search catalog…"
+        isSearching={isTypeaheadBusy(q, { isFetching: medsFetching })}
       />
       {meds?.data?.length ? (
         <ul className="max-h-32 overflow-auto rounded-md border border-border text-sm">
@@ -998,6 +1003,8 @@ function PrescriptionForm({
             </li>
           ))}
         </ul>
+      ) : q.trim().length >= 1 && !medsFetching ? (
+        <p className="text-xs text-muted-foreground">No medicines matched.</p>
       ) : null}
       <Label htmlFor="dosage">Dosage</Label>
       <Input id="dosage" value={dosage} onChange={(e) => setDosage(e.target.value)} required />

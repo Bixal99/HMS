@@ -3,11 +3,11 @@ import { NotificationsHistory } from "@/components/notifications/NotificationsHi
 import { requireSessionUser } from "@/lib/session-user";
 
 export default async function NotificationsPage() {
-  await requireSessionUser();
+  const user = await requireSessionUser();
 
   return (
     <AuthenticatedShell>
-      <NotificationsHistory />
+      <NotificationsHistory role={user.role} />
     </AuthenticatedShell>
   );
 }

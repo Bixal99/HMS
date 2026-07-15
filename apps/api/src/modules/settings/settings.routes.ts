@@ -4,12 +4,15 @@ import { authorize } from "../../middleware/authorize";
 import {
   changePasswordHandler,
   createDepartmentHandler,
+  createSpecialtyHandler,
   listDepartmentsHandler,
   listSettingsHandler,
+  listSpecialtiesHandler,
   listUsersHandler,
   meHandler,
   publicSettingsHandler,
   updateDepartmentHandler,
+  updateSpecialtyHandler,
   updateMeHandler,
   updateSettingHandler,
   userRoleHandler,
@@ -31,6 +34,16 @@ departmentsRoutes.get(
 );
 departmentsRoutes.post("/", authorize("ADMIN"), createDepartmentHandler);
 departmentsRoutes.patch("/:id", authorize("ADMIN"), updateDepartmentHandler);
+
+export const specialtiesRoutes = Router();
+specialtiesRoutes.use(authenticate);
+specialtiesRoutes.get(
+  "/",
+  authorize("ADMIN", "RECEPTIONIST", "DOCTOR", "NURSE"),
+  listSpecialtiesHandler,
+);
+specialtiesRoutes.post("/", authorize("ADMIN"), createSpecialtyHandler);
+specialtiesRoutes.patch("/:id", authorize("ADMIN"), updateSpecialtyHandler);
 
 export const usersRoutes = Router();
 usersRoutes.use(authenticate);

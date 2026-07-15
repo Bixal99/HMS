@@ -316,6 +316,74 @@ export const sidebarConfig: SidebarGroupDef[] = [
       },
     ],
   },
+  {
+    title: "Hospital Configuration",
+    items: [
+      {
+        href: "/staff",
+        label: "Staff Management",
+        icon: "stethoscope",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/settings?tab=departments",
+        label: "Department Management",
+        icon: "layout",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/settings?tab=specialties",
+        label: "Specialty Management",
+        icon: "layout",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/staff/availability",
+        label: "Doctor Schedules",
+        icon: "calendar",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/admin/wards",
+        label: "Room & Ward Management",
+        icon: "bed",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/admin/medicines",
+        label: "Medicine Management",
+        icon: "pill",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/admin/lab-catalog",
+        label: "Lab & Imaging Test Management",
+        icon: "flask",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/admin/billing-catalog",
+        label: "Billing & Service Catalog",
+        icon: "receipt",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+      {
+        href: "/settings",
+        label: "Hospital Settings",
+        icon: "wrench",
+        roles: ["ADMIN"],
+        portals: ["admin"],
+      },
+    ],
+  },
 ];
 
 export type BadgeCounts = Partial<Record<BadgeKey, number>>;

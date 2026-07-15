@@ -8,16 +8,17 @@ import { apiFetch, API_BASE, ApiError } from "@/lib/api";
 import { bedStatusFlip, staggerCards } from "@/lib/motion";
 import { PageEnter } from "@/components/shared/PageEnter";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ListSkeleton } from "@/components/shared/ListSkeleton";
+import { InlineLoader } from "@/components/shared/InlineLoader";
+import { QueryErrorState } from "@/components/shared/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
+import { ActionDrawer } from "@/components/shared/ActionDrawer";
+import { SearchInput, isTypeaheadBusy } from "@/components/shared/SearchInput";
 import { cn } from "@/lib/utils";
+import { BedDouble, ArrowRightLeft, LogOut } from "lucide-react";
+
 
 type BedStatus = "AVAILABLE" | "OCCUPIED" | "MAINTENANCE";
 
@@ -101,6 +102,9 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
   const [admitBed, setAdmitBed] = useState<Bed | null>(null);
   const [patientQuery, setPatientQuery] = useState("");
   const [patientId, setPatientId] = useState("");
+  const [selectedPatient, setSelectedPatient] = useState<PatientBrief | null>(
+    null,
+  );
   const [dischargeAdmission, setDischargeAdmission] =
     useState<ActiveAdmission | null>(null);
   const [dischargeSummary, setDischargeSummary] = useState("");
@@ -121,16 +125,20 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
 
   const occupancyKey = ["wards-occupancy"] as const;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: occupancyKey,
     queryFn: () => apiFetch<{ data: WardOccupancy[] }>("/api/wards/occupancy"),
   });
 
   const wards = data?.data ?? [];
 
-  const { data: patientHits } = useQuery({
+  const {
+    data: patientHits,
+    isFetching: patientSearchFetching,
+  } = useQuery({
     queryKey: ["patient-search", patientQuery],
-    enabled: admitOpen && patientQuery.trim().length >= 2,
+    enabled:
+      admitOpen && !selectedPatient && patientQuery.trim().length >= 1,
     queryFn: () =>
       apiFetch<{ data: PatientBrief[] }>(
         `/api/patients?q=${encodeURIComponent(patientQuery.trim())}&pageSize=8`,
@@ -280,6 +288,7 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
       setAdmitBed(null);
       setPatientId("");
       setPatientQuery("");
+      setSelectedPatient(null);
       void queryClient.invalidateQueries({ queryKey: occupancyKey });
     },
     onError: (err) => {
@@ -334,6 +343,9 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
   function openAdmit(bed: Bed) {
     if (!canAdmit || bed.status !== "AVAILABLE") return;
     setAdmitBed(bed);
+    setPatientId("");
+    setPatientQuery("");
+    setSelectedPatient(null);
     setAdmitOpen(true);
   }
 
@@ -405,11 +417,13 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading occupancy…</p>
+        <ListSkeleton rows={4} label="Loading occupancy…" />
+      ) : isError ? (
+        <QueryErrorState error={error} onRetry={() => void refetch()} />
       ) : wards.length === 0 ? (
         <EmptyState
           title="No wards configured"
-          description="Run the database seed to create demo wards and beds."
+          description="Create wards under Hospital Configuration → Room & Ward Management."
         />
       ) : view === "grid" ? (
         <div ref={gridRef} className="space-y-8">
@@ -583,193 +597,216 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
         </div>
       )}
 
-      <Drawer open={admitOpen} onOpenChange={setAdmitOpen}>
-        <DrawerContent className="max-h-[90vh] w-[min(28rem,94vw)] overflow-y-auto">
-          <DrawerHeader>
-            <DrawerTitle>
-              Admit to {admitBed?.bedNumber ?? "bed"}
-            </DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-4 p-4">
-            <div className="space-y-2">
-              <Label htmlFor="patient-search">Patient</Label>
-              <Input
-                id="patient-search"
-                value={patientQuery}
-                onChange={(e) => setPatientQuery(e.target.value)}
-                placeholder="Search name or MRN…"
-                autoComplete="off"
-              />
-              {patientHits?.data?.length ? (
-                <ul className="max-h-40 overflow-y-auto rounded-md border border-border">
-                  {patientHits.data.map((p) => (
-                    <li key={p.id}>
-                      <button
-                        type="button"
-                        className={cn(
-                          "w-full px-3 py-2 text-left text-sm hover:bg-muted/60",
-                          patientId === p.id && "bg-primary/10",
-                        )}
-                        onClick={() => {
-                          setPatientId(p.id);
-                          setPatientQuery(`${p.firstName} ${p.lastName} (${p.mrn})`);
-                        }}
-                      >
-                        {p.firstName} {p.lastName} · {p.mrn}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
+      <ActionDrawer
+        open={admitOpen}
+        onOpenChange={setAdmitOpen}
+        icon={BedDouble}
+        title={`Admit to ${admitBed?.bedNumber ?? "bed"}`}
+        description="Search for a patient, then confirm admission to this bed."
+        footer={
+          <>
             <Button
               type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => setAdmitOpen(false)}
+              disabled={admitMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
               disabled={!patientId || !admitBed || admitMutation.isPending}
               onClick={() => admitMutation.mutate()}
             >
               {admitMutation.isPending ? "Admitting…" : "Confirm admission"}
             </Button>
-          </div>
-        </DrawerContent>
-      </Drawer>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <Label htmlFor="patient-search">Patient</Label>
+          <SearchInput
+            id="patient-search"
+            value={patientQuery}
+            onChange={(e) => {
+              const value = e.target.value;
+              setPatientQuery(value);
+              if (selectedPatient) {
+                setSelectedPatient(null);
+                setPatientId("");
+              }
+            }}
+            placeholder="Search name or MRN…"
+            autoComplete="off"
+            isSearching={isTypeaheadBusy(patientQuery, {
+              isFetching: patientSearchFetching,
+            })}
+          />
+          {selectedPatient ? (
+            <p className="text-xs text-muted-foreground">
+              Admitting{" "}
+              <span className="font-medium text-foreground">
+                {selectedPatient.firstName} {selectedPatient.lastName} ·{" "}
+                {selectedPatient.mrn}
+              </span>
+            </p>
+          ) : null}
+          {!selectedPatient && patientHits?.data?.length ? (
+            <ul className="max-h-40 overflow-y-auto rounded-md border border-border">
+              {patientHits.data.map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-sm hover:bg-muted/60",
+                      patientId === p.id && "bg-primary/10",
+                    )}
+                    onClick={() => {
+                      setSelectedPatient(p);
+                      setPatientId(p.id);
+                      setPatientQuery(`${p.firstName} ${p.lastName}`);
+                    }}
+                  >
+                    {p.firstName} {p.lastName} · {p.mrn}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : !selectedPatient &&
+            patientQuery.trim().length >= 1 &&
+            !patientSearchFetching ? (
+            <p className="text-xs text-muted-foreground">No patients matched.</p>
+          ) : null}
+        </div>
+      </ActionDrawer>
 
-      <Drawer
+      <ActionDrawer
         open={Boolean(dischargeAdmission)}
         onOpenChange={(o) => !o && setDischargeAdmission(null)}
-      >
-        <DrawerContent className="max-h-[90vh] w-[min(28rem,94vw)] overflow-y-auto">
-          <DrawerHeader>
-            <DrawerTitle>Discharge checklist</DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-4 p-4">
-            {dischargeAdmission ? (
-              <p className="text-sm text-muted-foreground">
-                {dischargeAdmission.patient.firstName}{" "}
-                {dischargeAdmission.patient.lastName} ·{" "}
-                {dischargeAdmission.patient.mrn}
-              </p>
-            ) : null}
-
-            {checklistLoading ? (
-              <p className="text-sm text-muted-foreground">Loading checklist…</p>
-            ) : (
-              <ul className="space-y-3 text-sm">
-                <li
-                  className={cn(
-                    "rounded-md border px-3 py-2",
-                    labsBlocking
-                      ? "border-amber-500/50 bg-amber-500/10"
-                      : "border-border",
-                  )}
-                >
-                  <p className="font-medium">Pending lab results</p>
-                  <p className="text-muted-foreground">
-                    {checklist?.pendingLabResults.count ?? 0} not yet resulted
-                    {labsBlocking ? " — blocking unless overridden" : ""}
-                  </p>
-                </li>
-                <li className="rounded-md border border-border px-3 py-2">
-                  <p className="font-medium">Outstanding invoice</p>
-                  <p className="text-muted-foreground">
-                    {checklist?.outstandingInvoice.note ?? "—"}
-                    {checklist?.outstandingInvoice.count
-                      ? ` (${checklist.outstandingInvoice.count})`
-                      : ""}
-                  </p>
-                </li>
-                <li className="rounded-md border border-border px-3 py-2">
-                  <label className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={medsAck}
-                      onChange={(e) => setMedsAck(e.target.checked)}
-                    />
-                    <span>
-                      <span className="font-medium">Medication reconciliation</span>
-                      <span className="mt-0.5 block text-muted-foreground">
-                        Confirm meds reviewed before discharge
-                      </span>
-                    </span>
-                  </label>
-                </li>
-              </ul>
-            )}
-
-            {labsBlocking ? (
-              <div className="space-y-2">
-                <Label htmlFor="override-reason">Override reason (required)</Label>
-                <Input
-                  id="override-reason"
-                  value={overrideReason}
-                  onChange={(e) => setOverrideReason(e.target.value)}
-                  placeholder="Why discharge with pending labs?"
-                />
-              </div>
-            ) : null}
-
-            <div className="space-y-2">
-              <Label htmlFor="discharge-summary">Discharge summary</Label>
-              <textarea
-                id="discharge-summary"
-                className="min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                value={dischargeSummary}
-                onChange={(e) => setDischargeSummary(e.target.value)}
-              />
-            </div>
-
+        icon={LogOut}
+        title="Discharge checklist"
+        description={
+          dischargeAdmission
+            ? `${dischargeAdmission.patient.firstName} ${dischargeAdmission.patient.lastName} · ${dischargeAdmission.patient.mrn}`
+            : undefined
+        }
+        footer={
+          <>
             <Button
               type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => setDischargeAdmission(null)}
+              disabled={dischargeMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
               disabled={!canSubmitDischarge || dischargeMutation.isPending}
               onClick={() => dischargeMutation.mutate()}
             >
               {dischargeMutation.isPending ? "Discharging…" : "Confirm discharge"}
             </Button>
-          </div>
-        </DrawerContent>
-      </Drawer>
+          </>
+        }
+      >
+        {checklistLoading ? (
+          <InlineLoader label="Loading checklist…" />
+        ) : (
+          <ul className="space-y-3 text-sm">
+            <li
+              className={cn(
+                "rounded-md border px-3 py-2",
+                labsBlocking
+                  ? "border-warning/50 bg-warning/10"
+                  : "border-border",
+              )}
+            >
+              <p className="font-medium">Pending lab results</p>
+              <p className="text-muted-foreground">
+                {checklist?.pendingLabResults.count ?? 0} not yet resulted
+                {labsBlocking ? " — blocking unless overridden" : ""}
+              </p>
+            </li>
+            <li className="rounded-md border border-border px-3 py-2">
+              <p className="font-medium">Outstanding invoice</p>
+              <p className="text-muted-foreground">
+                {checklist?.outstandingInvoice.note ?? "—"}
+                {checklist?.outstandingInvoice.count
+                  ? ` (${checklist.outstandingInvoice.count})`
+                  : ""}
+              </p>
+            </li>
+            <li className="rounded-md border border-border px-3 py-2">
+              <label className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={medsAck}
+                  onChange={(e) => setMedsAck(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">Medication reconciliation</span>
+                  <span className="mt-0.5 block text-muted-foreground">
+                    Confirm meds reviewed before discharge
+                  </span>
+                </span>
+              </label>
+            </li>
+          </ul>
+        )}
 
-      <Drawer
+        {labsBlocking ? (
+          <div className="space-y-2">
+            <Label htmlFor="override-reason">Override reason (required)</Label>
+            <Input
+              id="override-reason"
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              placeholder="Why discharge with pending labs?"
+            />
+          </div>
+        ) : null}
+
+        <div className="space-y-2">
+          <Label htmlFor="discharge-summary">Discharge summary</Label>
+          <textarea
+            id="discharge-summary"
+            className="min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            value={dischargeSummary}
+            onChange={(e) => setDischargeSummary(e.target.value)}
+          />
+        </div>
+      </ActionDrawer>
+
+      <ActionDrawer
         open={Boolean(transferAdmission)}
         onOpenChange={(o) => !o && setTransferAdmission(null)}
-      >
-        <DrawerContent className="max-h-[90vh] w-[min(28rem,94vw)] overflow-y-auto">
-          <DrawerHeader>
-            <DrawerTitle>Transfer bed</DrawerTitle>
-          </DrawerHeader>
-          <div className="space-y-4 p-4">
-            {transferAdmission ? (
-              <p className="text-sm text-muted-foreground">
-                {transferAdmission.patient.firstName}{" "}
-                {transferAdmission.patient.lastName}
-              </p>
-            ) : null}
-            <div className="space-y-2">
-              <Label htmlFor="to-bed">Available bed</Label>
-              <select
-                id="to-bed"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                value={transferToBedId}
-                onChange={(e) => setTransferToBedId(e.target.value)}
-              >
-                <option value="">Select bed…</option>
-                {availableBeds.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.wardName} · {b.bedNumber} ({b.bedType})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="transfer-reason">Reason</Label>
-              <Input
-                id="transfer-reason"
-                value={transferReason}
-                onChange={(e) => setTransferReason(e.target.value)}
-              />
-            </div>
+        icon={ArrowRightLeft}
+        title="Transfer bed"
+        description={
+          transferAdmission
+            ? `${transferAdmission.patient.firstName} ${transferAdmission.patient.lastName}`
+            : undefined
+        }
+        footer={
+          <>
             <Button
               type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => setTransferAdmission(null)}
+              disabled={transferMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
               disabled={
                 !transferToBedId ||
                 !transferReason.trim() ||
@@ -779,9 +816,34 @@ export function OccupancyBoard({ role }: OccupancyBoardProps) {
             >
               {transferMutation.isPending ? "Transferring…" : "Confirm transfer"}
             </Button>
-          </div>
-        </DrawerContent>
-      </Drawer>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <Label htmlFor="to-bed">Available bed</Label>
+          <select
+            id="to-bed"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            value={transferToBedId}
+            onChange={(e) => setTransferToBedId(e.target.value)}
+          >
+            <option value="">Select bed…</option>
+            {availableBeds.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.wardName} · {b.bedNumber} ({b.bedType})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="transfer-reason">Reason</Label>
+          <Input
+            id="transfer-reason"
+            value={transferReason}
+            onChange={(e) => setTransferReason(e.target.value)}
+          />
+        </div>
+      </ActionDrawer>
     </PageEnter>
   );
 }

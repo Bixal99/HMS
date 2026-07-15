@@ -84,7 +84,24 @@ export const savedPulse = (el: HTMLElement) =>
     { scale: 1, opacity: 1, duration: 0.35, ease: "back.out(1.7)" },
   );
 
-/** Optimistic slot-chip removal (returns a tween; reverse with optimisticRestore). */
+/** Brief confirmation flash — chip stays visible, then shows as booked. */
+export const slotConfirmPulse = (el: HTMLElement) =>
+  gsap
+    .timeline()
+    .to(el, {
+      backgroundColor: "hsl(var(--primary) / 0.28)",
+      borderColor: "hsl(var(--primary) / 0.7)",
+      scale: 1.04,
+      duration: 0.2,
+      ease: "power2.out",
+    })
+    .to(el, {
+      scale: 1,
+      duration: 0.22,
+      ease: "power2.inOut",
+    });
+
+/** Optimistic slot-chip removal (legacy; prefer slotConfirmPulse). */
 export const optimisticRemove = (el: HTMLElement) =>
   gsap.to(el, {
     opacity: 0,

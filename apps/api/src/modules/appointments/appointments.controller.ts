@@ -146,7 +146,10 @@ export async function bookHandler(req: Request, res: Response) {
     }
     return res.status(201).json(appointment);
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      (err.code === "P2002" || err.code === "P2034")
+    ) {
       return sendApiError(
         res,
         apiError(
@@ -158,6 +161,33 @@ export async function bookHandler(req: Request, res: Response) {
       );
     }
     if (err instanceof Error) {
+      if (err.message === "SLOT_ALREADY_TAKEN") {
+        return sendApiError(
+          res,
+          apiError(
+            "SLOT_ALREADY_TAKEN",
+            "This appointment slot is no longer available.",
+            "refresh_slots",
+            409,
+          ),
+        );
+      }
+      if (err.message === "PATIENT_ALREADY_BOOKED") {
+        return sendApiError(
+          res,
+          apiError(
+            "PATIENT_ALREADY_BOOKED",
+            "This patient already has an open appointment with this doctor today. Cancel or complete it before booking another.",
+            "choose_another_day",
+            409,
+          ),
+        );
+      }
+      if (err.message === "SLOT_IN_PAST") {
+        return res.status(400).json({
+          error: "That time has already passed. Choose a later slot.",
+        });
+      }
       if (err.message === "INTAKE_NOT_FOUND") {
         return res.status(404).json({ error: "Intake not found" });
       }

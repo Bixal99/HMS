@@ -24,7 +24,6 @@ import {
   Wrench,
 } from "lucide-react";
 import { avatarToneClass, initialsFromName } from "@/lib/avatar";
-import { breadcrumbsFromPath } from "@/lib/breadcrumbs";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -38,6 +37,10 @@ import { MediCoreLogo } from "@/components/brand/MediCoreLogo";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { NotificationCenter } from "@/components/notifications/NotificationCenter";
 import { cn } from "@/lib/utils";
+import { useSidebarBadges } from "@/lib/use-sidebar-badges";
+import { useNavTrail } from "@/lib/use-nav-trail";
+import type { BadgeKey } from "@/lib/sidebar-config";
+import { homeForRole } from "@/lib/role-routes";
 
 export type NavIconName =
   | "layout"
@@ -96,6 +99,40 @@ type AppShellProps = {
   children: React.ReactNode;
 };
 
+const HREF_BADGE_KEY: Record<string, BadgeKey> = {
+  "/staff/leave": "leavePending",
+  "/pharmacy/alerts": "pharmacyAlerts",
+  "/pharmacy/queue": "pharmacyQueue",
+  "/lab/queue": "labQueue",
+  "/radiology/queue": "radiologyQueue",
+  "/billing": "billingAlerts",
+  "/inventory/alerts": "inventoryAlerts",
+  "/appointments/pending": "appointmentPending",
+};
+
+function applyClientBadges(
+  groups: NavGroup[],
+  badges: Partial<Record<BadgeKey, number>>,
+  role: string,
+): NavGroup[] {
+  const home = homeForRole(role);
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      const path = item.href.split("?")[0] ?? item.href;
+      let key = HREF_BADGE_KEY[path];
+      if (!key && path === home && role === "PATIENT") {
+        key = "patientUnpaid";
+      }
+      const count = key ? badges[key] : undefined;
+      return {
+        ...item,
+        badge: count && count > 0 ? count : undefined,
+      };
+    }),
+  }));
+}
+
 function NavList({
   navGroups,
   pathname,
@@ -138,6 +175,7 @@ function NavList({
                 <li key={item.href}>
                   <Link
                     href={item.href}
+                    prefetch
                     onClick={onNavigate}
                     className={cn(
                       "group relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
@@ -219,6 +257,7 @@ function SettingsNavLink({
     <div className="border-t border-sidebar-border p-3">
       <Link
         href="/settings"
+        prefetch
         onClick={onNavigate}
         className={cn(
           "group relative flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
@@ -251,10 +290,12 @@ export function AppShell({ user, navGroups, children }: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const crumbs = useMemo(
-    () => breadcrumbsFromPath(pathname, user.role),
-    [pathname, user.role],
+  const clientBadges = useSidebarBadges(user.role);
+  const resolvedNav = useMemo(
+    () => applyClientBadges(navGroups, clientBadges, user.role),
+    [navGroups, clientBadges, user.role],
   );
+  const { crumbs, onCrumbNavigate } = useNavTrail(user.role);
   const displayName = user.name || user.email;
   const initials = initialsFromName(displayName);
   const tone = avatarToneClass(displayName);
@@ -270,7 +311,7 @@ export function AppShell({ user, navGroups, children }: AppShellProps) {
       <aside className="hidden h-dvh w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex">
         <SidebarBrand role={user.role} inverted />
         <NavList
-          navGroups={navGroups}
+          navGroups={resolvedNav}
           pathname={pathname}
           className="app-scroll flex-1 overflow-y-auto"
         />
@@ -281,16 +322,23 @@ export function AppShell({ user, navGroups, children }: AppShellProps) {
         <header className="z-30 flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card/90 px-4 py-3 pr-5 backdrop-blur">
           <div className="flex min-w-0 items-center gap-3">
             <div className="md:hidden">
-              <Drawer open={mobileOpen} onOpenChange={setMobileOpen}>
+              <Drawer
+                open={mobileOpen}
+                onOpenChange={setMobileOpen}
+                direction="left"
+              >
                 <DrawerTrigger asChild>
                   <Button type="button" variant="outline" size="icon" aria-label="Open navigation">
                     <Menu className="size-4" />
                   </Button>
                 </DrawerTrigger>
-                <DrawerContent className="bg-sidebar text-sidebar-foreground">
+                <DrawerContent
+                  side="left"
+                  className="bg-sidebar text-sidebar-foreground"
+                >
                   <SidebarBrand role={user.role} inverted />
                   <NavList
-                    navGroups={navGroups}
+                    navGroups={resolvedNav}
                     pathname={pathname}
                     onNavigate={() => setMobileOpen(false)}
                   />
@@ -315,6 +363,10 @@ export function AppShell({ user, navGroups, children }: AppShellProps) {
                       {crumb.href && !isLast ? (
                         <Link
                           href={crumb.href}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onCrumbNavigate(crumb.href!, i);
+                          }}
                           className="truncate text-muted-foreground transition-colors hover:text-foreground"
                         >
                           {crumb.label}
@@ -340,8 +392,8 @@ export function AppShell({ user, navGroups, children }: AppShellProps) {
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
-            <GlobalSearch role={user.role} navGroups={navGroups} />
-            <NotificationCenter />
+            <GlobalSearch role={user.role} navGroups={resolvedNav} />
+            <NotificationCenter role={user.role} />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -385,7 +437,7 @@ export function AppShell({ user, navGroups, children }: AppShellProps) {
           </div>
         </header>
 
-        <main className="app-scroll h-0 min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain p-4 md:px-6 md:py-6">
+        <main className="app-scroll h-0 min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain p-4 md:px-6 md:py-5">
           {children}
         </main>
       </div>
