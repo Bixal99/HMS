@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
-  DragOverlay,
+  MeasuringStrategy,
   PointerSensor,
   closestCorners,
   useDroppable,
@@ -17,9 +24,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
-import { staggerCards } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 export type KanbanColumnDef = {
@@ -43,36 +48,36 @@ type KanbanBoardProps<T extends KanbanCardModel> = {
   emptyColumnText?: string;
 };
 
+type OverlayPos = { x: number; y: number; width: number };
+
 function SortableCardShell({
   id,
   columnId,
   children,
+  dragging,
 }: {
   id: string;
   columnId: string;
   children: ReactNode;
+  dragging: boolean;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id, data: { columnId } });
+  const { attributes, listeners, setNodeRef } = useSortable({
+    id,
+    data: { columnId },
+    // Prevent layout animations from leaving a stuck translate after drop.
+    animateLayoutChanges: () => false,
+  });
 
   return (
     <div
       ref={setNodeRef}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-      }}
       className={cn(
-        "flex gap-1 rounded-lg border border-border bg-card shadow-sm transition-shadow",
-        isDragging && "opacity-40 shadow-none",
+        "flex touch-none gap-1 rounded-lg border border-border bg-card shadow-sm",
+        dragging && "opacity-30",
       )}
       data-kanban-card
+      // Never leave a stale dnd transform on the source card.
+      style={{ transform: "none" }}
     >
       <button
         type="button"
@@ -91,12 +96,14 @@ function SortableCardShell({
 function Column({
   column,
   items,
+  activeId,
   renderCard,
   onCardOpen,
   emptyColumnText,
 }: {
   column: KanbanColumnDef;
   items: KanbanCardModel[];
+  activeId: string | null;
   renderCard: (item: KanbanCardModel, helpers: { open: () => void }) => ReactNode;
   onCardOpen?: (item: KanbanCardModel) => void;
   emptyColumnText: string;
@@ -132,7 +139,12 @@ function Column({
             </div>
           ) : (
             items.map((item) => (
-              <SortableCardShell key={item.id} id={item.id} columnId={item.columnId}>
+              <SortableCardShell
+                key={item.id}
+                id={item.id}
+                columnId={item.columnId}
+                dragging={activeId === item.id}
+              >
                 {renderCard(item, {
                   open: () => onCardOpen?.(item),
                 })}
@@ -151,6 +163,33 @@ function gridClassForColumns(count: number) {
   return "md:grid-cols-2 xl:grid-cols-4";
 }
 
+/**
+ * Pointer-tracked floating card — uses clientX/clientY directly so the ghost
+ * cannot drift from scroll containers, GSAP, or dnd-kit transform math.
+ */
+function FreeDragGhost({
+  pos,
+  children,
+}: {
+  pos: OverlayPos;
+  children: ReactNode;
+}) {
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[9999] [&>*]:w-full"
+      style={{
+        left: pos.x,
+        top: pos.y,
+        width: pos.width,
+      }}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
 export function KanbanBoard<T extends KanbanCardModel>({
   columns,
   items,
@@ -161,18 +200,14 @@ export function KanbanBoard<T extends KanbanCardModel>({
   className,
   emptyColumnText = "Drop cards here",
 }: KanbanBoardProps<T>) {
-  const boardRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [overlayPos, setOverlayPos] = useState<OverlayPos | null>(null);
+  const grabOffset = useRef({ x: 0, y: 0 });
+  const cardWidth = useRef(280);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
-
-  useEffect(() => {
-    if (!boardRef.current) return;
-    const cards = boardRef.current.querySelectorAll("[data-kanban-card]");
-    if (cards.length) staggerCards(cards);
-  }, [items.length, columns.map((c) => c.id).join("|")]);
 
   const byColumn = useMemo(() => {
     const map = new Map<string, T[]>();
@@ -185,6 +220,22 @@ export function KanbanBoard<T extends KanbanCardModel>({
 
   const activeItem = items.find((i) => i.id === activeId) ?? null;
 
+  // Keep ghost glued to the live pointer for the whole drag.
+  useEffect(() => {
+    if (!activeId) return;
+
+    const onPointerMove = (e: PointerEvent) => {
+      setOverlayPos({
+        x: e.clientX - grabOffset.current.x,
+        y: e.clientY - grabOffset.current.y,
+        width: cardWidth.current,
+      });
+    };
+
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onPointerMove);
+  }, [activeId]);
+
   function findColumnOf(id: string): string | null {
     const item = items.find((i) => i.id === id);
     if (item) return item.columnId;
@@ -192,13 +243,35 @@ export function KanbanBoard<T extends KanbanCardModel>({
     return null;
   }
 
+  function clearDrag() {
+    setActiveId(null);
+    setOverlayPos(null);
+  }
+
   function onDragStart(event: DragStartEvent) {
-    setActiveId(String(event.active.id));
+    const id = String(event.active.id);
+    setActiveId(id);
+
+    const ev = event.activatorEvent;
+    const initial = event.active.rect.current.initial;
+    if (!ev || !("clientX" in ev) || !initial) return;
+
+    const pointer = ev as PointerEvent;
+    grabOffset.current = {
+      x: pointer.clientX - initial.left,
+      y: pointer.clientY - initial.top,
+    };
+    cardWidth.current = initial.width || 280;
+    setOverlayPos({
+      x: pointer.clientX - grabOffset.current.x,
+      y: pointer.clientY - grabOffset.current.y,
+      width: cardWidth.current,
+    });
   }
 
   function onDragEnd(event: DragEndEvent) {
-    setActiveId(null);
     const { active, over } = event;
+    clearDrag();
     if (!over) return;
 
     const from = findColumnOf(String(active.id));
@@ -217,11 +290,14 @@ export function KanbanBoard<T extends KanbanCardModel>({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCorners}
+      measuring={{
+        droppable: { strategy: MeasuringStrategy.Always },
+      }}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onDragCancel={clearDrag}
     >
       <div
-        ref={boardRef}
         className={cn(
           "grid gap-3",
           gridClassForColumns(columns.length),
@@ -232,6 +308,7 @@ export function KanbanBoard<T extends KanbanCardModel>({
           <Column
             key={column.id}
             column={column}
+            activeId={activeId}
             items={(byColumn.get(column.id) ?? []) as KanbanCardModel[]}
             emptyColumnText={emptyColumnText}
             renderCard={(item, helpers) =>
@@ -246,15 +323,18 @@ export function KanbanBoard<T extends KanbanCardModel>({
           />
         ))}
       </div>
-      <DragOverlay dropAnimation={null}>
-        {activeItem
-          ? (renderOverlay?.(activeItem) ?? (
-              <div className="w-72 rotate-1 rounded-lg border border-primary/40 bg-card p-3 shadow-xl">
-                Moving…
+
+      {activeItem && overlayPos
+        ? (
+          <FreeDragGhost pos={overlayPos}>
+            {renderOverlay?.(activeItem) ?? (
+              <div className="rounded-lg border border-primary/50 bg-card p-3 shadow-2xl ring-2 ring-primary/25">
+                <p className="text-sm font-medium">Moving…</p>
               </div>
-            ))
-          : null}
-      </DragOverlay>
+            )}
+          </FreeDragGhost>
+        )
+        : null}
     </DndContext>
   );
 }

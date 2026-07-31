@@ -190,7 +190,7 @@ export function FulfillmentBoard() {
               </button>
             )}
             renderOverlay={(rx) => (
-              <div className="w-72 rotate-1 rounded-lg border border-primary/40 bg-card p-3 shadow-xl">
+              <div className="rounded-lg border border-primary/50 bg-card p-3 shadow-2xl ring-2 ring-primary/25">
                 <p className="font-medium">
                   {rx.patient.firstName} {rx.patient.lastName}
                 </p>

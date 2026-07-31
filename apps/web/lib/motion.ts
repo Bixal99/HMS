@@ -3,15 +3,27 @@ import gsap from "gsap";
 export const pageEnter = (el: HTMLElement) =>
   gsap.fromTo(
     el,
-    { opacity: 0, y: 8 },
-    { opacity: 1, y: 0, duration: 0.35, ease: "power2.out" },
+    { opacity: 0 },
+    {
+      opacity: 1,
+      duration: 0.35,
+      ease: "power2.out",
+    },
   );
 
 export const staggerCards = (els: HTMLElement[] | NodeListOf<Element>) =>
   gsap.fromTo(
     els,
     { opacity: 0, y: 12 },
-    { opacity: 1, y: 0, duration: 0.4, stagger: 0.05, ease: "power2.out" },
+    {
+      opacity: 1,
+      y: 0,
+      duration: 0.4,
+      stagger: 0.05,
+      ease: "power2.out",
+      // Leftover transforms fight dnd-kit / break fixed positioning.
+      clearProps: "transform",
+    },
   );
 
 export const countUp = (el: HTMLElement, to: number) =>
